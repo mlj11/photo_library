@@ -134,7 +134,7 @@ def create_session(req: SessionCreate):
             proc = subprocess.Popen(
                 unbuf_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
                 env=env,
@@ -142,6 +142,20 @@ def create_session(req: SessionCreate):
             _scan_jobs[job_id]["pid"] = proc.pid
             _persist_jobs()
             _last_persist = [0]
+            stderr_lines = []
+
+            def _drain_stderr():
+                try:
+                    for line in proc.stderr:
+                        line = line.strip()
+                        if line:
+                            stderr_lines.append(line)
+                except Exception:
+                    pass
+
+            _stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+            _stderr_thread.start()
+
             while True:
                 line = proc.stdout.readline()
                 if not line:
@@ -168,9 +182,11 @@ def create_session(req: SessionCreate):
                     except (ValueError, IndexError):
                         pass
             proc.wait()
+            _stderr_thread.join(timeout=2)
             if proc.returncode != 0:
+                last_err = " | ".join(stderr_lines[-6:]) if stderr_lines else ""
                 _scan_jobs[job_id]["status"] = "error"
-                _scan_jobs[job_id]["error"] = f"exit code {proc.returncode}"
+                _scan_jobs[job_id]["error"] = f"exit code {proc.returncode}" + (f": {last_err}" if last_err else "")
             else:
                 _scan_jobs[job_id]["status"] = "done"
             _persist_jobs()

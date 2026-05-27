@@ -657,8 +657,9 @@ def generate_dashboard(results_display, results_all, html_path: Path, input_dir:
     dof_cnt   = sum(1 for r in results_all if r["dof"])
     grp_cnt   = len(set(r["group"] for r in results_all if r["group"] >= 0))
 
-    # JSON pro JS
-    jdata = json.dumps(results_all)
+    # JSON pro JS (embedding neni serializovatelne, vynechame)
+    _skip = {"embedding"}
+    jdata = json.dumps([{k: v for k, v in r.items() if k not in _skip} for r in results_all])
 
     # Karty
     cards = ""
