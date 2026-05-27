@@ -266,6 +266,8 @@ def list_photos(
     special: str = Query("all"),
     min_score: Optional[float] = Query(None),
     search: str = Query(""),
+    rating: int = Query(-1),
+    rating_op: str = Query("gte", pattern="^(eq|gte|lte)$"),
 ):
     conn = get_db()
     try:
@@ -294,6 +296,13 @@ def list_photos(
         if search:
             conditions.append("p.name LIKE ?")
             params.append(f"%{search}%")
+
+        if rating == 0:
+            conditions.append("p.user_rating = 0")
+        elif rating >= 1:
+            op_sql = {"eq": "=", "gte": ">=", "lte": "<="}[rating_op]
+            conditions.append(f"p.user_rating {op_sql} ?")
+            params.append(rating)
 
         # special filters
         special_conditions = {
@@ -520,6 +529,43 @@ def open_file(path: str = Query(...)):
         return {"ok": True, "path": str(p)}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+_PREVIEW_CACHE = Path(__file__).parent / "preview_cache"
+_SUPPORTED_RAW = {".arw", ".nef", ".cr2", ".cr3", ".orf", ".rw2", ".dng"}
+_SUPPORTED_STD = {".jpg", ".jpeg", ".png", ".tiff", ".tif"}
+
+@app.get("/api/preview")
+def preview_file(path: str = Query(...)):
+    p = Path(path)
+    if not p.exists():
+        raise HTTPException(404, "File not found")
+
+    suffix = p.suffix.lower()
+
+    if suffix in _SUPPORTED_STD:
+        mt = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+        return FileResponse(str(p), media_type=mt)
+
+    if suffix in _SUPPORTED_RAW:
+        _PREVIEW_CACHE.mkdir(exist_ok=True)
+        cache_file = _PREVIEW_CACHE / f"{p.stem}_{p.stat().st_size}_preview.jpg"
+        if not cache_file.exists():
+            try:
+                import rawpy
+                from PIL import Image as _Img
+                with rawpy.imread(str(p)) as raw:
+                    rgb = raw.postprocess(
+                        use_camera_wb=True, half_size=True,
+                        no_auto_bright=False, output_bps=8)
+                img = _Img.fromarray(rgb)
+                img.thumbnail((2560, 2560), _Img.LANCZOS)
+                img.save(str(cache_file), "JPEG", quality=92)
+            except Exception as e:
+                raise HTTPException(500, f"RAW conversion failed: {e}")
+        return FileResponse(str(cache_file), media_type="image/jpeg")
+
+    raise HTTPException(415, "Unsupported file type")
 
 
 @app.get("/api/thumb")

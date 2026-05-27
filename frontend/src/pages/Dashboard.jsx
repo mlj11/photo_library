@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api'
 import PhotoCard from '../components/PhotoCard'
+import Lightbox from '../components/Lightbox'
 import FilterBar from '../components/FilterBar'
 import GroupNav from '../components/GroupNav'
 import SelectionBar from '../components/SelectionBar'
@@ -14,6 +15,8 @@ const DEFAULT_FILTERS = {
   special: 'all',
   min_score: null,
   search: '',
+  rating: -1,
+  rating_op: 'gte',
 }
 
 export default function Dashboard() {
@@ -28,6 +31,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notification, setNotification] = useState('')
+  const [lightboxIdx, setLightboxIdx] = useState(null)
   const [allSessions, setAllSessions] = useState([])
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const switcherRef = useRef(null)
@@ -71,6 +75,8 @@ export default function Dashboard() {
       special: filters.special !== 'all' ? filters.special : undefined,
       min_score: filters.min_score ?? undefined,
       search: filters.search || undefined,
+      rating: filters.rating >= 0 ? filters.rating : undefined,
+      rating_op: filters.rating > 0 ? filters.rating_op : undefined,
     }
     api.getPhotos(id, params)
       .then(p => { setPhotos(p); setLoading(false) })
@@ -206,14 +212,14 @@ export default function Dashboard() {
         <div className="flex items-center justify-center py-24 text-muted text-sm">Žádné fotky pro tyto filtry</div>
       ) : (
         <div className="photo-grid pb-20">
-          {photos.map(photo => (
+          {photos.map((photo, idx) => (
             <PhotoCard
               key={photo.id}
               photo={photo}
               scoreMin={scoreMin}
               scoreMax={scoreMax}
               onToggleSelect={handleToggleSelect}
-              onOpenFile={handleOpenFile}
+              onOpenLightbox={() => setLightboxIdx(idx)}
               onUpdate={handleUpdate}
             />
           ))}
@@ -228,6 +234,17 @@ export default function Dashboard() {
         onClear={handleClearSelection}
         onSelectVisible={handleSelectVisible}
       />
+
+      {/* Lightbox */}
+      {lightboxIdx !== null && (
+        <Lightbox
+          photos={photos}
+          index={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+          onNavigate={setLightboxIdx}
+          onOpenFile={handleOpenFile}
+        />
+      )}
 
       {/* Notification toast */}
       {notification && (

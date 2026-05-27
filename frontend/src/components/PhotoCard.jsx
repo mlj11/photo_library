@@ -47,7 +47,7 @@ function Badge({ type, children }) {
   )
 }
 
-export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, onOpenFile, onUpdate }) {
+export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, onOpenLightbox, onUpdate }) {
   const [notes, setNotes] = useState(photo.notes || '')
   const [editingNotes, setEditingNotes] = useState(false)
   const [imgError, setImgError] = useState(false)
@@ -82,7 +82,7 @@ export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, o
       {/* Thumbnail */}
       <div
         className="relative aspect-[3/2] overflow-hidden bg-bg cursor-pointer group"
-        onClick={() => onOpenFile(photo.path)}>
+        onClick={onOpenLightbox}>
         {!imgError ? (
           <img
             src={photo.thumb_url}

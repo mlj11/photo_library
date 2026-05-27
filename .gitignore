@@ -11,6 +11,9 @@ venv/
 .venv/
 env/
 
+# Generated preview cache
+backend/preview_cache/
+
 # Database & data files
 *.db
 *.sqlite

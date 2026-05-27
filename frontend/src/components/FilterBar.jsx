@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 
 function Btn({ active, onClick, children }) {
   return (
@@ -117,7 +117,36 @@ export default function FilterBar({ filters, stats, visibleCount, onFiltersChang
         ))}
       </div>
 
-      {/* Row 4: score slider + card size */}
+      {/* Row 4: rating filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-muted text-[0.65rem] min-w-[3rem]">Hodnocení:</span>
+        <Btn active={filters.rating === -1} onClick={() => set('rating', -1)}>Vše</Btn>
+        <Btn active={filters.rating === 0}  onClick={() => set('rating', 0)}>Nehodnocené</Btn>
+
+        {/* Operator — visible only when 1–5 stars selected */}
+        {[1,2,3,4,5].map(n => (
+          <Btn key={n} active={filters.rating === n} onClick={() => set('rating', n)}>
+            {'★'.repeat(n)}
+          </Btn>
+        ))}
+        {filters.rating >= 1 && (
+          <div className="flex gap-1 ml-1">
+            {[['eq','='],['gte','≥'],['lte','≤']].map(([op, label]) => (
+              <button
+                key={op}
+                onClick={() => set('rating_op', op)}
+                className={`text-[0.65rem] w-6 h-6 rounded border transition
+                  ${filters.rating_op === op
+                    ? 'border-accent text-accent bg-accent/10'
+                    : 'border-border text-muted hover:border-accent/50 hover:text-txt'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Row 5: score slider + card size */}
       <div className="flex items-center gap-4 flex-wrap">
         <span className="text-muted text-[0.65rem]">Min score:</span>
         <div className="flex items-center gap-2">
