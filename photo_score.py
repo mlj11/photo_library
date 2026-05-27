@@ -343,14 +343,16 @@ def phash_similarity(h1, h2) -> float:
     diff = h1 - h2  # Hammingova vzdalenost (0-64)
     return 1.0 - diff / 64.0
 
-def find_dedup_groups(embeddings: list, images: list, threshold: float,
+def find_dedup_groups(embeddings: list, phashes: list, threshold: float,
                       phash_threshold: float = 0.83) -> list:
     """
     Skupiny s tranzitivnim spojenım (Union-Find):
       - A~B a B~C => A, B, C ve stejne skupine, i kdyz A primo nesplni prah s C
       - Podminka 1: CLIP cosine similarity >= threshold
-      - Podminka 2: pHash podobnost >= 0.83  (uvolneno z 0.88 pro pohybujici se osoby)
+      - Podminka 2: pHash podobnost >= phash_threshold
 
+    phashes: predpocitane haše (imagehash objekt nebo None) – pocitaji se v loopu,
+             ne zde, aby se nemusely drzet vsechny obrazky v pameti.
     Bez imagehash: pouzije se prisnejsi CLIP prah (threshold + 0.04).
     """
     n = len(embeddings)
@@ -362,16 +364,6 @@ def find_dedup_groups(embeddings: list, images: list, threshold: float,
 
     # Vsechny pairwise CLIP similarity najednou (matice n×n) – rychle pro velke serie
     sim_matrix = emb_arr @ emb_arr.T
-
-    phashes = []
-    if HAS_IMAGEHASH:
-        for img in images:
-            try:
-                phashes.append(imagehash.phash(img, hash_size=16))
-            except Exception:
-                phashes.append(None)
-    else:
-        phashes = [None] * n
 
     # Union-Find – umoznuje tranzitivni skupiny
     parent = list(range(n))
@@ -509,6 +501,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     print(f"PHASE:scanning:{len(photos)}", flush=True)
     results    = []
     embeddings = []
+    phash_list = []
     start      = time.time()
 
     for _i, photo_path in enumerate(tqdm(photos, unit="foto")):
@@ -528,6 +521,15 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         clip_s = float(pos - neg * neg_weight)
         emb    = feat.cpu().numpy().squeeze()
         embeddings.append(emb)
+
+        # pHash ihned – obraz se pak uvolni
+        if HAS_IMAGEHASH:
+            try:
+                phash_list.append(imagehash.phash(img, hash_size=16))
+            except Exception:
+                phash_list.append(None)
+        else:
+            phash_list.append(None)
 
         # Kategorie – s korekcí pro portret_vzdaleny vs scena
         category = max(cat_s, key=cat_s.get)
@@ -581,11 +583,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "group":     -1,
             "best_in_group": False,
             "embedding": emb,  # numpy float32 – ulozeno do DB jako BLOB
-            "_img":      img.copy() if HAS_IMAGEHASH else None,  # docasne pro pHash
         })
 
-        if not HAS_IMAGEHASH:
-            del img
+        del img
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
@@ -598,10 +598,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     if not HAS_IMAGEHASH:
         print("[WARN]  imagehash chybi – pouzivam jen CLIP (mene presne)")
         print("        pip install imagehash")
-    groups = find_dedup_groups(embeddings, [r["_img"] for r in results], dedup_threshold, phash_threshold)
+    groups = find_dedup_groups(embeddings, phash_list, dedup_threshold, phash_threshold)
     for i, r in enumerate(results):
         r["group"] = int(groups[i])
-        r.pop("_img", None)  # odstran docasny obrazek
 
     # Nejlepsi v kazde skupine
     from collections import defaultdict
