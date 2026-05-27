@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS photos (
     notes           TEXT DEFAULT '',
     exported        INTEGER DEFAULT 0,
     export_path     TEXT DEFAULT '',
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    embedding       BLOB DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_photos_session  ON photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_photos_score    ON photos(session_id, score DESC);
@@ -423,6 +424,11 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = _sqlite3.connect(str(db_path))
     conn.executescript(SCHEMA_SQL)
+    for _migration in ["ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL"]:
+        try:
+            conn.execute(_migration); conn.commit()
+        except _sqlite3.OperationalError:
+            pass
     conn.execute("""
         INSERT INTO sessions (name, input_dir, thumb_dir, scanned_at, total_photos)
         VALUES (?, ?, ?, ?, ?)
@@ -430,20 +436,21 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
           _dt.now().isoformat(), len(results)))
     session_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     for r in results:
+        emb_blob = r["embedding"].tobytes() if r.get("embedding") is not None else None
         conn.execute("""
             INSERT INTO photos (
                 session_id, name, path, thumb,
                 score, clip_score, sharp_center, sharp_edges, sharp_total,
                 dof, comp_score, category, emotion, face_score,
-                group_id, best_in_group, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                group_id, best_in_group, created_at, embedding
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             session_id, r["name"], r["path"], r["thumb"],
             r["score"], r["clip"], r["sharp_c"], r["sharp_e"], r["sharp_t"],
             1 if r["dof"] else 0, r["comp"], r["category"],
             r["emotion"], r["face_score"],
             r["group"], 1 if r["best_in_group"] else 0,
-            _dt.now().isoformat()
+            _dt.now().isoformat(), emb_blob
         ))
     conn.commit()
     conn.close()
@@ -573,6 +580,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "face_score":face["face_score"],
             "group":     -1,
             "best_in_group": False,
+            "embedding": emb,  # numpy float32 – ulozeno do DB jako BLOB
             "_img":      img.copy() if HAS_IMAGEHASH else None,  # docasne pro pHash
         })
 

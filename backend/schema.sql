@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS photos (
     notes           TEXT DEFAULT '',
     exported        INTEGER DEFAULT 0,
     export_path     TEXT DEFAULT '',
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    embedding       BLOB DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_photos_session  ON photos(session_id);

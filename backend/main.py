@@ -393,6 +393,94 @@ def update_photo(photo_id: int, req: PhotoUpdate):
         conn.close()
 
 
+# ── Re-group ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/sessions/{session_id}/regroup")
+def regroup_session(session_id: int):
+    import numpy as np
+    from collections import defaultdict
+
+    cfg = _cfg.load()
+    threshold = float(cfg["dedup_threshold"])
+
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, score, embedding FROM photos WHERE session_id=? ORDER BY id",
+            (session_id,)).fetchall()
+        if not rows:
+            raise HTTPException(404, "Session not found or empty")
+
+        ids     = [r["id"] for r in rows]
+        scores  = [r["score"] for r in rows]
+        raw_emb = [r["embedding"] for r in rows]
+
+        valid = [(i, np.frombuffer(raw_emb[i], dtype=np.float32))
+                 for i in range(len(rows)) if raw_emb[i]]
+
+        if len(valid) < 2:
+            return {"groups": 0, "regrouped": 0,
+                    "message": "Embeddings nejsou uloženy – spusťte nový scan."}
+
+        v_idx   = [v[0] for v in valid]
+        v_embs  = np.stack([v[1] for v in valid]).astype(np.float32)
+        # Normalize (embeddings are already unit-norm from CLIP, but re-normalize to be safe)
+        norms = np.linalg.norm(v_embs, axis=1, keepdims=True)
+        v_embs = v_embs / np.where(norms > 0, norms, 1.0)
+        sim = v_embs @ v_embs.T
+
+        n = len(v_idx)
+        parent = list(range(n))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if sim[i, j] >= threshold:
+                    union(i, j)
+
+        root_members = defaultdict(list)
+        for i in range(n):
+            root_members[find(i)].append(i)
+
+        group_ids = [-1] * n
+        best_flags = [False] * n
+        gid = 0
+        for members in root_members.values():
+            if len(members) > 1:
+                for idx in members:
+                    group_ids[idx] = gid
+                best = max(members, key=lambda x: scores[v_idx[x]])
+                best_flags[best] = True
+                gid += 1
+
+        # Write back
+        for i in range(n):
+            conn.execute(
+                "UPDATE photos SET group_id=?, best_in_group=? WHERE id=?",
+                (group_ids[i], 1 if best_flags[i] else 0, ids[v_idx[i]]))
+        # Photos without embeddings → reset to unique
+        for i in range(len(ids)):
+            if raw_emb[i] is None:
+                conn.execute(
+                    "UPDATE photos SET group_id=-1, best_in_group=0 WHERE id=?",
+                    (ids[i],))
+        conn.commit()
+
+        return {"groups": gid, "regrouped": len(v_idx), "threshold": threshold}
+    finally:
+        conn.close()
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/sessions/{session_id}/stats")

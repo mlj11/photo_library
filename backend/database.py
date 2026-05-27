@@ -21,4 +21,13 @@ def init_db(db_path: Path = None) -> None:
     conn = sqlite3.connect(str(target))
     conn.executescript(schema)
     conn.commit()
+    # Migrate: add columns added after initial schema creation
+    for col_sql in [
+        "ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL",
+    ]:
+        try:
+            conn.execute(col_sql)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.close()

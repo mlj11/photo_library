@@ -6,6 +6,7 @@ import Lightbox from '../components/Lightbox'
 import FilterBar from '../components/FilterBar'
 import GroupNav from '../components/GroupNav'
 import SelectionBar from '../components/SelectionBar'
+import SettingsModal from '../components/SettingsModal'
 
 const DEFAULT_FILTERS = {
   sort: 'name',
@@ -34,6 +35,8 @@ export default function Dashboard() {
   const [lightboxIdx, setLightboxIdx] = useState(null)
   const [allSessions, setAllSessions] = useState([])
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [regrouping, setRegrouping] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const switcherRef = useRef(null)
 
   const notifTimer = useRef(null)
@@ -120,6 +123,30 @@ export default function Dashboard() {
     photos.filter(p => p.selected).forEach(p => handleUpdate(p.id, { selected: false }))
   }
 
+  const handleRegroup = useCallback(async () => {
+    setRegrouping(true)
+    try {
+      const res = await api.regroupSession(id)
+      notify(`Skupiny přepočítány: ${res.groups} skupin (práh ${res.threshold})`)
+      const [newStats, newPhotos] = await Promise.all([api.getStats(id), api.getPhotos(id, {
+        sort: filters.sort, order: filters.order,
+        category: filters.category !== 'all' ? filters.category : undefined,
+        group_id: filters.group_id !== -2 ? filters.group_id : undefined,
+        special: filters.special !== 'all' ? filters.special : undefined,
+        min_score: filters.min_score ?? undefined,
+        search: filters.search || undefined,
+        rating: filters.rating >= 0 ? filters.rating : undefined,
+        rating_op: filters.rating > 0 ? filters.rating_op : undefined,
+      })])
+      setStats(newStats)
+      setPhotos(newPhotos)
+    } catch (e) {
+      notify(`Chyba: ${e.message}`)
+    } finally {
+      setRegrouping(false)
+    }
+  }, [id, filters])
+
   const scoreMin = stats?.score_min ?? 0
   const scoreMax = stats?.score_max ?? 1
 
@@ -181,6 +208,19 @@ export default function Dashboard() {
               <span>sk: <strong className="text-txt">{stats.groups}</strong></span>
             </>
           )}
+          <button
+            onClick={handleRegroup}
+            disabled={regrouping}
+            title="Přepočítat skupiny s aktuálním prahem (bez nového scanu)"
+            className="px-2 py-1 border border-border rounded text-muted hover:border-accent hover:text-accent transition disabled:opacity-40 disabled:cursor-not-allowed">
+            {regrouping ? '…' : '⟳ skupiny'}
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-muted hover:text-accent transition text-lg leading-none px-2 py-1"
+            title="Nastavení scanu">
+            ⚙
+          </button>
         </div>
       </header>
 
@@ -245,6 +285,9 @@ export default function Dashboard() {
           onOpenFile={handleOpenFile}
         />
       )}
+
+      {/* Settings modal */}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {/* Notification toast */}
       {notification && (

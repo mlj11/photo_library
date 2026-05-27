@@ -68,4 +68,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+
+  regroupSession: (id) =>
+    req(`/api/sessions/${id}/regroup`, { method: 'POST' }),
 }
