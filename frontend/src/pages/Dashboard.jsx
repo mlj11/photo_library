@@ -179,10 +179,10 @@ export default function Dashboard() {
       </header>
 
       {/* Group nav */}
-      {photos.length > 0 && (
+      {stats?.groups > 0 && (
         <div className="bg-surf border-b border-border px-4 py-2">
           <GroupNav
-            photos={photos}
+            groupCounts={stats.group_counts ?? {}}
             activeGroupId={filters.group_id}
             onGroupChange={gid => setFilters(f => ({ ...f, group_id: gid }))}
           />

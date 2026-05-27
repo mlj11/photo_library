@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from database import get_db, init_db, DB_PATH
 from models import SessionCreate, SessionUpdate, PhotoUpdate, ExportRequest
+import scan_config as _cfg
 
 app = FastAPI(title="Photo Library API")
 
@@ -107,7 +108,21 @@ def create_session(req: SessionCreate):
     output_dir = req.output_dir or ""
 
     def _run():
-        cmd = [sys.executable, str(script), "--input", req.input_dir, "--db", str(DB_PATH)]
+        cfg = _cfg.load()
+        cmd = [
+            sys.executable, str(script),
+            "--input",          req.input_dir,
+            "--db",             str(DB_PATH),
+            "--clip-model",     cfg["clip_model"],
+            "--thumb-size",     str(cfg["thumb_size"]),
+            "--sort",           cfg["sort"],
+            "--dedup-thr",      str(cfg["dedup_threshold"]),
+            "--phash-thr",      str(cfg["phash_threshold"]),
+            "--neg-weight",     str(cfg["neg_weight"]),
+            "--dof-peak-min",   str(cfg["dof_peak_min"]),
+            "--dof-ratio",      str(cfg["dof_ratio"]),
+            "--blur-penalty-thr", str(cfg["blur_penalty_thr"]),
+        ]
         if req.name:
             cmd += ["--session-name", req.name]
         if output_dir:
@@ -171,6 +186,15 @@ def create_session(req: SessionCreate):
     threading.Thread(target=_run, daemon=True).start()
     return {"job_id": job_id, "status": "running",
             "message": "Scan started."}
+
+
+@app.get("/api/scan-config")
+def get_scan_config():
+    return _cfg.load()
+
+@app.post("/api/scan-config")
+def post_scan_config(body: dict):
+    return _cfg.save(body)
 
 
 @app.get("/api/jobs")
@@ -304,14 +328,23 @@ def list_photos(
             "score":  "p.score",
             "name":   "p.name",
             "sharp":  "p.sharp_center",
-            "group":  "p.group_id",
             "rating": "p.user_rating",
         }
         order_dir = "DESC" if order == "desc" else "ASC"
-        sort_col = sort_map.get(sort, "p.name")
-
         where = " AND ".join(conditions)
-        sql = f"SELECT p.* FROM photos p WHERE {where} ORDER BY {sort_col} {order_dir}"
+
+        if sort == "group":
+            # Unique photos (group_id = -1) always at the end;
+            # groups ordered ASC/DESC; within each group best score first.
+            end_sentinel = "999999" if order_dir == "ASC" else "-999999"
+            sql = (
+                f"SELECT p.* FROM photos p WHERE {where} "
+                f"ORDER BY CASE WHEN p.group_id = -1 THEN {end_sentinel} ELSE p.group_id END {order_dir}, "
+                f"p.score DESC"
+            )
+        else:
+            sort_col = sort_map.get(sort, "p.name")
+            sql = f"SELECT p.* FROM photos p WHERE {where} ORDER BY {sort_col} {order_dir}"
         rows = conn.execute(sql, params).fetchall()
         return [_photo_with_thumb_url(_row_to_dict(r), thumb_dir) for r in rows]
     finally:
@@ -384,13 +417,17 @@ def get_stats(session_id: int):
             e = p["emotion"] or "none"
             emotions[e] = emotions.get(e, 0) + 1
 
-        group_ids = set(p["group_id"] for p in photos if p["group_id"] >= 0)
+        group_counts: dict[int, int] = {}
+        for p in photos:
+            if p["group_id"] >= 0:
+                group_counts[p["group_id"]] = group_counts.get(p["group_id"], 0) + 1
 
         return {
             "total": len(photos),
             "selected": sum(1 for p in photos if p["selected"]),
             "dof": sum(1 for p in photos if p["dof"]),
-            "groups": len(group_ids),
+            "groups": len(group_counts),
+            "group_counts": group_counts,
             "score_min": round(min_s, 4),
             "score_max": round(max_s, 4),
             "score_avg": round(avg_s, 4),

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import SettingsModal from '../components/SettingsModal'
 
 async function pickFolder(title) {
   const res = await fetch(`/api/pick-folder?title=${encodeURIComponent(title)}`)
@@ -184,6 +185,7 @@ export default function SessionList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [activeJob, setActiveJobRaw] = useState(() => {
     try { return JSON.parse(localStorage.getItem('activeJob')) } catch { return null }
   })
@@ -260,11 +262,19 @@ export default function SessionList() {
       <header className="bg-surf border-b border-border px-6 py-4 sticky top-0 z-10 flex items-center gap-4">
         <span className="font-syne text-accent text-xl font-extrabold tracking-tight">PHOTO LIBRARY</span>
         <span className="text-muted text-xs">dashboard</span>
-        <button
-          onClick={() => setShowModal(true)}
-          className="ml-auto bg-accent text-black font-bold text-xs px-4 py-2 rounded hover:bg-yellow-400 transition">
-          + Nový scan
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-muted hover:text-accent transition text-lg leading-none px-2 py-1"
+            title="Nastavení scanu">
+            ⚙
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-accent text-black font-bold text-xs px-4 py-2 rounded hover:bg-yellow-400 transition">
+            + Nový scan
+          </button>
+        </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
@@ -324,6 +334,10 @@ export default function SessionList() {
           </table>
         )}
       </main>
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
 
       {showModal && (
         <NewScanModal

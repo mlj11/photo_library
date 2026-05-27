@@ -58,4 +58,14 @@ export const api = {
 
   openFile: (path) =>
     req(`/api/open?path=${encodeURIComponent(path)}`),
+
+  getScanConfig: () =>
+    req('/api/scan-config'),
+
+  saveScanConfig: (data) =>
+    req('/api/scan-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 }

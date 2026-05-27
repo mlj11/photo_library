@@ -101,9 +101,10 @@ POS_PROMPTS = [
     "award winning travel and nature photography",
     "a well lit photograph with beautiful colors",
     "a memorable moment captured perfectly",
+    "a portrait with sharp focused subject and beautiful soft bokeh background",
 ]
 NEG_PROMPTS = [
-    "a blurry out of focus photograph",
+    "a completely blurry photo where everything is out of focus with no sharp subject",
     "an overexposed or underexposed photo",
     "a dark grainy low quality snapshot",
     "a poorly composed accidental photo",
@@ -111,13 +112,16 @@ NEG_PROMPTS = [
 
 # CLIP prompty – kategorie
 CAT_PROMPTS = {
-    "portret_blizky":   [
-        "a close up portrait of a person face filling the frame",
-        "detailed facial portrait, face is large in frame",
+    "portret_blizky": [
+        "a close up portrait face fills the entire frame minimal background",
+        "head and shoulders portrait very close to camera face dominates photo",
+        "extreme close up of a person face no full body visible",
+        "tight facial portrait face occupies most of the image",
     ],
     "portret_vzdaleny": [
-        "a person as main subject half body or full body portrait",
-        "a hiker or person clearly visible and dominant in the scene",
+        "a person full body visible standing in a landscape",
+        "full length portrait of a person outdoors whole body in frame head to toe",
+        "person standing in mountains visible from head to toe",
     ],
     "krajina":          [
         "a dramatic mountain landscape with no people",
@@ -143,6 +147,11 @@ CAT_PROMPTS = {
 # Pokud rozdil mezi portret_vzdaleny a scena < tento prah,
 # preferujeme scenu (clovek je moc maly)
 PORTRET_V_MARGIN = 0.003
+
+# Minimalni rozdil portret_vzdaleny vs portret_blizky pro povyseni na blizky
+# Pokud portret_blizky skoro vyrovnava portret_vzdaleny (< tento prah),
+# klasifikujeme jako portret_blizky
+PORTRET_B_MARGIN = 0.002
 
 # CLIP prompty – vyraz obliceje (spolehlivejsi nez DeepFace pro outdoor)
 FACE_PROMPTS = {
@@ -197,13 +206,18 @@ def make_thumbnail(src: Path, dst: Path, size: int) -> bool:
         return False
 
 # ── DOF-aware ostrost ─────────────────────────────────────────────────────────
-def analyze_sharpness(img: Image.Image) -> dict:
+def analyze_sharpness(img: Image.Image,
+                      dof_peak_min: float = 120,
+                      dof_ratio: float = 2.5,
+                      blur_penalty_thr: float = 40) -> dict:
     """
     Rozlisuje mezi:
       - Ostry objekt + rozmazane pozadi (DOF/bokeh) -> zadna penalizace, bonus
       - Vse rozmazane -> penalizace
       - Vse ostre -> bonus
-    Vraci dict: sharp_center, sharp_edges, sharp_var_total, dof, penalty
+
+    DOF detekce pouziva mrizi 4x4 bloku – funguje i pro off-center motivy
+    (pravidlo tretin, portret vlevo/vpravo, atd.)
     """
     if not HAS_SCIPY:
         return {"sharp_center": 100.0, "sharp_edges": 100.0,
@@ -213,36 +227,39 @@ def analyze_sharpness(img: Image.Image) -> dict:
     h, w = gray.shape
     kern = np.array([[0,1,0],[1,-4,1],[0,1,0]], dtype=np.float32)
     lap  = sp_conv(gray, kern)
-    lap2 = lap ** 2
 
-    # Stred – stredni 40% obrazku
+    # Stred a okraje – zachovano pro metriky v DB / UI
     cy1, cy2 = int(h*0.3), int(h*0.7)
     cx1, cx2 = int(w*0.3), int(w*0.7)
     center_var = float(np.var(lap[cy1:cy2, cx1:cx2]))
 
-    # Okraje – vnejsi 20% obrazku
-    edge_mask  = np.zeros_like(lap2, dtype=bool)
-    edge_mask[:int(h*0.2), :]  = True
-    edge_mask[int(h*0.8):, :]  = True
-    edge_mask[:, :int(w*0.2)]  = True
-    edge_mask[:, int(w*0.8):]  = True
-    edge_var = float(np.var(lap[edge_mask]))
-
+    edge_mask = np.zeros_like(lap, dtype=bool)
+    edge_mask[:int(h*0.2), :] = True
+    edge_mask[int(h*0.8):, :] = True
+    edge_mask[:, :int(w*0.2)] = True
+    edge_mask[:, int(w*0.8):] = True
+    edge_var  = float(np.var(lap[edge_mask]))
     total_var = float(np.var(lap))
 
-    # DOF detekce: stred vyrazne ostrejsi nez okraje
-    dof = (center_var > 80) and (center_var > edge_var * 2.5)
+    # DOF detekce: mrize 4x4 bloku – najde nejostrejsi region kdekoliv v obrazu
+    GRID = 4
+    bh, bw = h // GRID, w // GRID
+    block_vars = [
+        float(np.var(lap[gy*bh:(gy+1)*bh, gx*bw:(gx+1)*bw]))
+        for gy in range(GRID) for gx in range(GRID)
+    ]
+    block_vars.sort()
+    peak_var   = block_vars[-1]                      # nejostrejsi blok
+    median_var = block_vars[len(block_vars) // 2]    # median bloku
 
-    # Score
+    dof = (peak_var > dof_peak_min) and (peak_var > median_var * dof_ratio)
+
     if dof:
-        # Zamerene bokeh – zadna penalizace, mirny bonus
-        score = min((center_var - 80) / 500.0, 0.2)
-    elif center_var < 40:
-        # Vse rozmazane – penalizace
-        score = -0.3 + center_var / 200.0
+        score = min((peak_var - dof_peak_min) / 600.0, 0.2)
+    elif peak_var < blur_penalty_thr:
+        score = -0.3 + peak_var / 200.0
     else:
-        # Normalni – linearni bonus/neutral
-        score = min((center_var - 40) / 400.0, 0.15)
+        score = min((peak_var - blur_penalty_thr) / 400.0, 0.15)
 
     return {
         "sharp_center": round(center_var, 1),
@@ -325,58 +342,73 @@ def phash_similarity(h1, h2) -> float:
     diff = h1 - h2  # Hammingova vzdalenost (0-64)
     return 1.0 - diff / 64.0
 
-def find_dedup_groups(embeddings: list, images: list, threshold: float) -> list:
+def find_dedup_groups(embeddings: list, images: list, threshold: float,
+                      phash_threshold: float = 0.83) -> list:
     """
-    Fotky jsou ve stejne skupine POUZE kdyz splni OBE podminky:
-      1. CLIP cosine similarity >= threshold  (stejny obsah)
-      2. pHash podobnost >= 0.88             (skoro stejne pixely)
+    Skupiny s tranzitivnim spojenım (Union-Find):
+      - A~B a B~C => A, B, C ve stejne skupine, i kdyz A primo nesplni prah s C
+      - Podminka 1: CLIP cosine similarity >= threshold
+      - Podminka 2: pHash podobnost >= 0.83  (uvolneno z 0.88 pro pohybujici se osoby)
 
-    Bez imagehash: pouzije se prisnejsi CLIP prah (threshold + 0.04)
-    aby se zabranilo sdrupovani krajin se stejnou scenerii.
+    Bez imagehash: pouzije se prisnejsi CLIP prah (threshold + 0.04).
     """
-    n       = len(embeddings)
-    groups  = [-1] * n
-    gid     = 0
-    emb_arr = np.array(embeddings)
+    n = len(embeddings)
+    if n == 0:
+        return []
 
-    # Bez pHash pouzijeme prisnejsi CLIP prah
+    emb_arr = np.array(embeddings, dtype=np.float32)
     clip_threshold = threshold if HAS_IMAGEHASH else min(threshold + 0.04, 0.99)
 
-    # Spocitej pHash pro vsechny fotky
+    # Vsechny pairwise CLIP similarity najednou (matice n×n) – rychle pro velke serie
+    sim_matrix = emb_arr @ emb_arr.T
+
     phashes = []
     if HAS_IMAGEHASH:
         for img in images:
             try:
-                phashes.append(imagehash.phash(img, hash_size=16))  # vetsi hash = presnejsi
+                phashes.append(imagehash.phash(img, hash_size=16))
             except Exception:
                 phashes.append(None)
     else:
         phashes = [None] * n
 
+    # Union-Find – umoznuje tranzitivni skupiny
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
     for i in range(n):
-        if groups[i] != -1:
-            continue
-        similar = []
-        for j in range(i+1, n):
-            if groups[j] != -1:
+        for j in range(i + 1, n):
+            if sim_matrix[i, j] < clip_threshold:
                 continue
-            # Podminka 1: CLIP similarita
-            clip_sim = float(np.dot(emb_arr[i], emb_arr[j]))
-            if clip_sim < clip_threshold:
-                continue
-            # Podminka 2: pHash podobnost
             if HAS_IMAGEHASH and phashes[i] is not None and phashes[j] is not None:
-                # hash_size=16 -> max vzdalenost 256
                 diff   = phashes[i] - phashes[j]
                 ph_sim = 1.0 - diff / 256.0
-                if ph_sim < 0.88:
-                    continue  # Jiny zaber/uhel = neni duplicita
-            similar.append(j)
+                if ph_sim < phash_threshold:
+                    continue
+            union(i, j)
 
-        if similar:
-            groups[i] = gid
-            for j in similar:
-                groups[j] = gid
+    # Preved Union-Find koreny na ocislovane group_id, osamele = -1
+    from collections import defaultdict
+    root_members = defaultdict(list)
+    for i in range(n):
+        root_members[find(i)].append(i)
+
+    groups = [-1] * n
+    gid = 0
+    for members in root_members.values():
+        if len(members) > 1:
+            for idx in members:
+                groups[idx] = gid
             gid += 1
 
     return groups
@@ -420,7 +452,10 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
 
 def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
                  thumb_size: int, dedup_threshold: float,
-                 db_path: Path = None, session_name: str = ""):
+                 db_path: Path = None, session_name: str = "",
+                 clip_model: str = "ViT-L/14", neg_weight: float = 0.7,
+                 phash_threshold: float = 0.83, dof_peak_min: float = 120,
+                 dof_ratio: float = 2.5, blur_penalty_thr: float = 40):
     print("\n" + "="*60)
     print("  PHOTO SCORER v2")
     print("="*60)
@@ -445,7 +480,8 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     print(f"PHASE:loading_model:{len(photos)}", flush=True)
     print("\n[WAIT] Nacitam CLIP model...")
     device = get_device()
-    model, preprocess = clip.load("ViT-L/14", device=device)
+    print(f"[CFG]   model={clip_model}  neg_weight={neg_weight}  dedup={dedup_threshold}  phash={phash_threshold}  dof_peak={dof_peak_min}  dof_ratio={dof_ratio}  blur_thr={blur_penalty_thr}")
+    model, preprocess = clip.load(clip_model, device=device)
     model.eval()
 
     with torch.no_grad():
@@ -482,24 +518,27 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             pos  = (feat @ tf_pos.T).mean().item()
             neg  = (feat @ tf_neg.T).mean().item()
             cat_s = {k: (feat @ tf.T).mean().item() for k, tf in tf_cats.items()}
-        clip_s = float(pos - neg * 0.7)
+        clip_s = float(pos - neg * neg_weight)
         emb    = feat.cpu().numpy().squeeze()
         embeddings.append(emb)
 
         # Kategorie – s korekcí pro portret_vzdaleny vs scena
         category = max(cat_s, key=cat_s.get)
 
-        # Pokud vyhra portret_vzdaleny ale scena je temer stejne skore
-        # = clovek je pravdepodobne prilis maly v kadru -> degraduj na scena
+        # portret_vzdaleny vs scena: pokud rozdil maly -> degraduj na scena
         if category == "portret_vzdaleny":
-            scena_s = cat_s.get("scena", 0)
-            if cat_s["portret_vzdaleny"] - scena_s < PORTRET_V_MARGIN:
+            if cat_s["portret_vzdaleny"] - cat_s.get("scena", 0) < PORTRET_V_MARGIN:
                 category = "scena"
+
+        # portret_vzdaleny vs portret_blizky: pokud blizky skoro vyrovnava -> povys na blizky
+        if category == "portret_vzdaleny":
+            if cat_s["portret_vzdaleny"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
+                category = "portret_blizky"
 
         is_portrait = category in ("portret_blizky", "portret_vzdaleny")
 
         # Ostrost (DOF-aware)
-        sharp = analyze_sharpness(img)
+        sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
 
         # Kompozice
         comp = round(composition_score(img), 3)
@@ -551,7 +590,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     if not HAS_IMAGEHASH:
         print("[WARN]  imagehash chybi – pouzivam jen CLIP (mene presne)")
         print("        pip install imagehash")
-    groups = find_dedup_groups(embeddings, [r["_img"] for r in results], dedup_threshold)
+    groups = find_dedup_groups(embeddings, [r["_img"] for r in results], dedup_threshold, phash_threshold)
     for i, r in enumerate(results):
         r["group"] = int(groups[i])
         r.pop("_img", None)  # odstran docasny obrazek
@@ -1216,21 +1255,29 @@ function resizeCards(val) {{
 # ── CLI ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input",       required=True)
-    parser.add_argument("--output",      default="")
-    parser.add_argument("--sort",        default="name", choices=["name","score","sharp"])
-    parser.add_argument("--thumb-size",  type=int,   default=400)
-    parser.add_argument("--dedup-thr",    type=float, default=0.92,
-                        help="Prah pro deduplikacni skupiny (default 0.92)")
-    parser.add_argument("--db",           default="",
-                        help="Cesta k SQLite DB (default: C:\\ML\\photo_library.db)")
-    parser.add_argument("--session-name", default="",
-                        help="Nazev sezeni v DB (default: nazev slozky)")
+    parser.add_argument("--input",            required=True)
+    parser.add_argument("--output",           default="")
+    parser.add_argument("--sort",             default="name", choices=["name","score","sharp"])
+    parser.add_argument("--thumb-size",       type=int,   default=400)
+    parser.add_argument("--dedup-thr",        type=float, default=0.92)
+    parser.add_argument("--phash-thr",        type=float, default=0.83)
+    parser.add_argument("--clip-model",       default="ViT-L/14", choices=["ViT-L/14","ViT-B/32"])
+    parser.add_argument("--neg-weight",       type=float, default=0.7)
+    parser.add_argument("--dof-peak-min",     type=float, default=120)
+    parser.add_argument("--dof-ratio",        type=float, default=2.5)
+    parser.add_argument("--blur-penalty-thr", type=float, default=40)
+    parser.add_argument("--db",              default="")
+    parser.add_argument("--session-name",    default="")
     args = parser.parse_args()
 
     input_dir  = Path(args.input)
     output_dir = Path(args.output) if args.output else input_dir / "_dashboard"
     db_path    = Path(args.db) if args.db else Path(r"C:\ML\photo_library.db")
 
-    score_photos(input_dir, output_dir, args.sort, args.thumb_size, args.dedup_thr,
-                 db_path=db_path, session_name=args.session_name)
+    score_photos(
+        input_dir, output_dir, args.sort, args.thumb_size, args.dedup_thr,
+        db_path=db_path, session_name=args.session_name,
+        clip_model=args.clip_model, neg_weight=args.neg_weight,
+        phash_threshold=args.phash_thr, dof_peak_min=args.dof_peak_min,
+        dof_ratio=args.dof_ratio, blur_penalty_thr=args.blur_penalty_thr,
+    )

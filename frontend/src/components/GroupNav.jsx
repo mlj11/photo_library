@@ -1,62 +1,43 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-export default function GroupNav({ photos, activeGroupId, onGroupChange }) {
-  const groupMap = {}
-  for (const p of photos) {
-    if (p.group_id >= 0) {
-      groupMap[p.group_id] = (groupMap[p.group_id] || 0) + 1
-    }
-  }
-  const groupIds = Object.keys(groupMap).map(Number).sort((a, b) => a - b)
+export default function GroupNav({ groupCounts = {}, activeGroupId, onGroupChange }) {
+  const groupIds = Object.keys(groupCounts).map(Number).sort((a, b) => a - b)
 
-  // Keyboard navigation
+  // Stable ref so the keydown handler always sees current values without re-registering
+  const stateRef = useRef({ groupIds, activeGroupId, onGroupChange })
+  useEffect(() => {
+    stateRef.current = { groupIds, activeGroupId, onGroupChange }
+  })
+
   useEffect(() => {
     function onKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
-      if (e.key === 'ArrowRight') {
-        const idx = groupIds.indexOf(activeGroupId)
-        const next = groupIds[Math.min(idx + 1, groupIds.length - 1)]
-        if (next !== undefined) onGroupChange(next)
-      } else if (e.key === 'ArrowLeft') {
-        const idx = groupIds.indexOf(activeGroupId)
-        if (idx <= 0) onGroupChange(-2)
-        else onGroupChange(groupIds[idx - 1])
-      }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
+      const { groupIds, activeGroupId, onGroupChange } = stateRef.current
+      const all = [-2, -1, ...groupIds]
+      const idx = all.indexOf(activeGroupId)
+      if (e.key === 'ArrowRight' && idx < all.length - 1) onGroupChange(all[idx + 1])
+      else if (e.key === 'ArrowLeft' && idx > 0) onGroupChange(all[idx - 1])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [groupIds, activeGroupId, onGroupChange])
+  }, []) // registruje se jednou, čte aktuální stav přes ref
 
   if (groupIds.length === 0) return null
 
-  function Btn({ gid, label }) {
-    const active = activeGroupId === gid
-    const hue = gid >= 0 ? (gid * 47) % 360 : 0
-    return (
-      <button
-        onClick={() => onGroupChange(gid)}
-        style={gid >= 0 ? {
-          borderColor: active ? '#e8a020' : `hsl(${hue},50%,28%)`,
-          color: active ? '#e8a020' : `hsl(${hue},65%,60%)`,
-        } : {}}
-        className={`text-[0.65rem] px-2 py-1 rounded border transition whitespace-nowrap
-          ${active
-            ? 'border-accent text-accent bg-accent/7'
-            : gid < 0 ? 'border-border text-muted hover:border-accent/50 hover:text-txt' : 'bg-surf hover:opacity-80'}`}>
-        {label}
-      </button>
-    )
-  }
-
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-muted text-[0.65rem] min-w-[3rem]">Skupina:</span>
-      <Btn gid={-2} label="Vše" />
-      <Btn gid={-1} label="Unikátní" />
-      {groupIds.map(gid => (
-        <Btn key={gid} gid={gid} label={`gr.${gid} (${groupMap[gid]})`} />
-      ))}
-      <span className="text-muted text-[0.6rem] ml-1">← → pro navigaci</span>
+    <div className="flex items-center gap-2">
+      <span className="text-muted text-[0.65rem] whitespace-nowrap">Skupina:</span>
+      <select
+        value={activeGroupId}
+        onChange={e => onGroupChange(Number(e.target.value))}
+        className="bg-bg border border-border rounded px-2 py-1 text-xs text-txt focus:border-accent outline-none cursor-pointer">
+        <option value={-2}>Vše</option>
+        <option value={-1}>Unikátní</option>
+        {groupIds.map(gid => (
+          <option key={gid} value={gid}>gr.{gid} ({groupCounts[gid]})</option>
+        ))}
+      </select>
+      <span className="text-muted text-[0.6rem]">← → pro navigaci</span>
     </div>
   )
 }
