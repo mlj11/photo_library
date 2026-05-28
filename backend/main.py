@@ -450,6 +450,7 @@ def regroup_session(session_id: int):
     from collections import defaultdict
     try:
         import imagehash as _imagehash
+        from PIL import Image as _PILImage
         _HAS_IMAGEHASH = True
     except ImportError:
         _HAS_IMAGEHASH = False
@@ -459,8 +460,13 @@ def regroup_session(session_id: int):
 
     conn = get_db()
     try:
+        session_row = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+        if not session_row:
+            raise HTTPException(404, "Session not found")
+        thumb_dir = session_row["thumb_dir"]
+
         rows = conn.execute(
-            "SELECT id, score, embedding, phash FROM photos WHERE session_id=? ORDER BY id",
+            "SELECT id, score, embedding, phash, thumb FROM photos WHERE session_id=? ORDER BY id",
             (session_id,)).fetchall()
         if not rows:
             raise HTTPException(404, "Session not found or empty")
@@ -505,7 +511,19 @@ def regroup_session(session_id: int):
 
         raw_phash = [r["phash"] for r in rows]
         phash_thr = float(cfg.get("phash_threshold", 0.83))
-        has_phash = any(p for p in raw_phash)
+
+        # Compute phash from thumbnail for photos that don't have it stored
+        if _HAS_IMAGEHASH:
+            for i in range(len(rows)):
+                if raw_phash[i] is None:
+                    try:
+                        thumb_path = Path(thumb_dir) / rows[i]["thumb"]
+                        img = _PILImage.open(str(thumb_path))
+                        raw_phash[i] = str(_imagehash.phash(img, hash_size=16))
+                    except Exception:
+                        pass
+
+        has_phash = _HAS_IMAGEHASH and any(p for p in raw_phash)
 
         for i in range(n):
             for j in range(i + 1, n):
