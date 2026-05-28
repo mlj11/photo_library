@@ -201,11 +201,30 @@ def _extract_jpeg_binary(path: Path) -> "Image.Image | None":
 
 # ── Perzistentní RAW worker (jeden subprocess na celý scan) ───────────────────
 _RAW_WORKER_CODE = r"""
-import sys, rawpy, numpy as np, io, os
+import sys, numpy as np, io, os
+from pathlib import Path
+from PIL import Image as _Img
 
-# Unbuffered binary stdout pro předávání dat
 out = open(sys.stdout.fileno(), 'wb', buffering=0)
 inp = open(sys.stdin.fileno(),  'r',  buffering=1)
+
+def _binary_jpeg(path_str):
+    data = Path(path_str).read_bytes()
+    best_size, best_data, pos = 0, None, 0
+    while True:
+        idx = data.find(b'\xff\xd8\xff', pos)
+        if idx == -1:
+            break
+        end = data.find(b'\xff\xd9', idx + 4)
+        if end != -1:
+            size = end + 2 - idx
+            if size > best_size:
+                best_size = size
+                best_data = data[idx:end + 2]
+        pos = idx + 1
+    if best_data:
+        return _Img.open(io.BytesIO(best_data)).convert('RGB')
+    return None
 
 while True:
     line = inp.readline()
@@ -214,22 +233,24 @@ while True:
     parts = line.rstrip('\n').split('\t', 1)
     path_in, tmpf = parts[0], parts[1]
     try:
-        with rawpy.imread(path_in) as raw:
-            try:
-                from rawpy import ThumbFormat
-                td = raw.extract_thumb()
-                if td.format == ThumbFormat.JPEG:
-                    from PIL import Image as _Img
-                    img = _Img.open(io.BytesIO(td.data)).convert('RGB')
-                    np.save(tmpf, np.array(img))
-                    out.write(b'OK\n'); continue
-            except Exception:
-                pass
-            rgb = raw.postprocess(use_camera_wb=True, half_size=True,
-                                  no_auto_bright=False, output_bps=8)
-            np.save(tmpf, rgb)
-            out.write(b'OK\n')
-    except Exception as e:
+        img = _binary_jpeg(path_in)
+        if img is None:
+            import rawpy
+            with rawpy.imread(path_in) as raw:
+                try:
+                    from rawpy import ThumbFormat
+                    td = raw.extract_thumb()
+                    if td.format == ThumbFormat.JPEG:
+                        img = _Img.open(io.BytesIO(td.data)).convert('RGB')
+                    else:
+                        raise ValueError()
+                except Exception:
+                    rgb = raw.postprocess(use_camera_wb=True, half_size=True,
+                                          no_auto_bright=False, output_bps=8)
+                    img = _Img.fromarray(rgb)
+        np.save(tmpf, np.array(img))
+        out.write(b'OK\n')
+    except Exception:
         out.write(b'ERR\n')
 """
 
@@ -301,18 +322,18 @@ class _RawWorker:
                     self._proc.stdin.flush()
                 except Exception:
                     self._start()
-                    return _extract_jpeg_binary(path)
+                    return None
 
                 resp = self._peek_readline(timeout)
 
                 if resp is None or self._proc.poll() is not None:
-                    print(f"  [WARN] {path.name}: worker crash/timeout, binary fallback", flush=True)
+                    print(f"  [WARN] {path.name}: worker timeout, přeskakuji", flush=True)
                     try:
                         self._proc.kill()
-                        self._proc.wait(timeout=2)  # počkej na uvolnění file handle
+                        self._proc.wait(timeout=2)
                     except Exception: pass
                     self._start()
-                    return _extract_jpeg_binary(path)
+                    return None
 
                 if resp.strip() == b'OK':
                     npy = tmpf + '.npy'
@@ -320,14 +341,14 @@ class _RawWorker:
                     arr = np.load(src)
                     return Image.fromarray(arr.astype(np.uint8))
 
-                print(f"  [WARN] {path.name}: rawpy ERR, binary fallback", flush=True)
+                print(f"  [WARN] {path.name}: worker ERR, přeskakuji", flush=True)
         except Exception as e:
             print(f"  [WARN] {path.name}: {e}", flush=True)
         finally:
             for p in (tmpf, tmpf + '.npy'):
                 try: _os.unlink(p)
                 except: pass
-        return _extract_jpeg_binary(path)
+        return None
 
     def close(self):
         try:
@@ -342,22 +363,14 @@ _raw_worker: "_RawWorker | None" = None
 
 def load_image(path: Path):
     global _raw_worker
-    import time as _t
     try:
         if path.suffix.lower() in SUPPORTED_RAW:
-            t0 = _t.time()
-            print(f"  [TRACE] load_image: binary_extract start {path.name}", flush=True)
-            img = _extract_jpeg_binary(path)
-            print(f"  [TRACE] load_image: binary_extract done {_t.time()-t0:.2f}s img={'ok' if img else 'None'}", flush=True)
-            if img is not None:
-                return img
-            print(f"  [TRACE] load_image: falling back to worker {path.name}", flush=True)
             if _raw_worker is None:
                 _raw_worker = _RawWorker()
             return _raw_worker.load(path)
         return Image.open(path).convert("RGB")
     except Exception as e:
-        print(f"  [WARN] {path.name}: {e}")
+        print(f"  [WARN] {path.name}: {e}", flush=True)
         return None
 
 def make_thumbnail(src: Path, dst: Path, size: int, img: "Image.Image | None" = None) -> bool:
