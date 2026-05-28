@@ -702,12 +702,18 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     phash_list = []
     start      = time.time()
 
+    _tlog = open(r"C:\photo-library\scan_trace.log", "w", buffering=1, encoding="utf-8")
+    def _t(msg):
+        line = f"{time.time():.1f} {msg}\n"
+        _tlog.write(line)
+
     for _i, photo_path in enumerate(tqdm(photos, unit="foto")):
         print(f"PROGRESS:{_i+1}:{len(photos)}", flush=True)
         print(f"FILE:{photo_path.name}", flush=True)
         _step_t = time.time()
+        _t(f"FILE {photo_path.name}")
         img = load_image(photo_path)
-        print(f"  [TRACE] load_image done {time.time()-_step_t:.2f}s", flush=True)
+        _t(f"load_image done {time.time()-_step_t:.2f}s img={'ok' if img else 'None'}")
         if img is None:
             continue
 
@@ -723,7 +729,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         clip_s = float(pos - neg * neg_weight)
         emb    = feat.cpu().numpy().squeeze()
         embeddings.append(emb)
-        print(f"  [TRACE] clip done {time.time()-_step_t:.2f}s", flush=True)
+        _t(f"clip done {time.time()-_step_t:.2f}s")
 
         # pHash ihned – obraz se pak uvolni
         if HAS_IMAGEHASH:
@@ -752,19 +758,19 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Ostrost (DOF-aware)
         _step_t = time.time()
         sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
-        print(f"  [TRACE] sharp done {time.time()-_step_t:.2f}s", flush=True)
+        _t(f"sharp done {time.time()-_step_t:.2f}s")
 
         # Kompozice
         _step_t = time.time()
         comp = round(composition_score(img), 3)
-        print(f"  [TRACE] comp done {time.time()-_step_t:.2f}s", flush=True)
+        _t(f"comp done {time.time()-_step_t:.2f}s")
 
         # Vyraz obliceje (CLIP-based, jen pro portréty)
         face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0}
         if is_portrait:
             _step_t = time.time()
             face = analyze_face_clip(img, model, preprocess, tf_face, device)
-            print(f"  [TRACE] face done {time.time()-_step_t:.2f}s", flush=True)
+            _t(f"face done {time.time()-_step_t:.2f}s")
 
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
@@ -774,8 +780,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Thumbnail
         _step_t = time.time()
         tname = f"{photo_path.stem}.jpg"
+        _t(f"thumb start")
         make_thumbnail(photo_path, output_dir / "_thumbs" / tname, thumb_size, img=img)
-        print(f"  [TRACE] thumb done {time.time()-_step_t:.2f}s", flush=True)
+        _t(f"thumb done {time.time()-_step_t:.2f}s")
 
         results.append({
             "name":      photo_path.name,
