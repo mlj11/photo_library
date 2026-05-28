@@ -357,7 +357,7 @@ def list_photos(
             "best":     "p.best_in_group = 1",
             "unique":   "p.group_id = -1",
             "dof":      "p.dof = 1",
-            "blur":     "p.sharp_center < 80 AND p.dof = 0",
+            "blur":     "p.sharp_center < 60 AND p.sharp_total < 60 AND p.dof = 0",
             "sharp":    "p.sharp_center > 200",
             "smile":    "p.emotion = 'smile'",
             "wow":      "p.emotion = 'wow'",
