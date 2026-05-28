@@ -390,18 +390,19 @@ def list_photos(
         order_dir = "DESC" if order == "desc" else "ASC"
         where = " AND ".join(conditions)
 
+        cols = "p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at"
         if sort == "group":
             # Unique photos (group_id = -1) always at the end;
             # groups ordered ASC/DESC; within each group best score first.
             end_sentinel = "999999" if order_dir == "ASC" else "-999999"
             sql = (
-                f"SELECT p.* FROM photos p WHERE {where} "
+                f"SELECT {cols} FROM photos p WHERE {where} "
                 f"ORDER BY CASE WHEN p.group_id = -1 THEN {end_sentinel} ELSE p.group_id END {order_dir}, "
                 f"p.score DESC"
             )
         else:
             sort_col = sort_map.get(sort, "p.name")
-            sql = f"SELECT p.* FROM photos p WHERE {where} ORDER BY {sort_col} {order_dir}"
+            sql = f"SELECT {cols} FROM photos p WHERE {where} ORDER BY {sort_col} {order_dir}"
         rows = conn.execute(sql, params).fetchall()
         return [_photo_with_thumb_url(_row_to_dict(r), thumb_dir) for r in rows]
     finally:
@@ -428,7 +429,7 @@ def update_photo(photo_id: int, req: PhotoUpdate):
         conn.commit()
 
         row = conn.execute("""
-            SELECT p.*, s.thumb_dir FROM photos p
+            SELECT p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at, s.thumb_dir FROM photos p
             JOIN sessions s ON p.session_id = s.id
             WHERE p.id=?
         """, (photo_id,)).fetchone()
