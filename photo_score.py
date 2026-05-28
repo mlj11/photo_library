@@ -248,15 +248,46 @@ class _RawWorker:
             bufsize=0,
         )
 
-    def _readline_timeout(self, timeout=10):
-        import threading as _t
-        result = [None]
-        def _r():
-            try: result[0] = self._proc.stdout.readline()
-            except Exception: pass
-        t = _t.Thread(target=_r, daemon=True)
-        t.start(); t.join(timeout)
-        return result[0]
+    def _peek_readline(self, timeout=10) -> "bytes | None":
+        """Non-blokující readline přes PeekNamedPipe (Windows) nebo thread (ostatní)."""
+        import time, os as _os
+        if sys.platform == 'win32':
+            import ctypes, msvcrt
+            try:
+                handle = msvcrt.get_osfhandle(self._proc.stdout.fileno())
+            except Exception:
+                return None
+            deadline = time.time() + timeout
+            buf = b''
+            while time.time() < deadline:
+                avail = ctypes.c_ulong(0)
+                ok = ctypes.windll.kernel32.PeekNamedPipe(
+                    ctypes.c_void_p(handle), None, 0, None,
+                    ctypes.byref(avail), None)
+                if not ok:
+                    break  # roura zavřená (worker padl)
+                if avail.value > 0:
+                    try:
+                        byte = _os.read(self._proc.stdout.fileno(), 1)
+                    except Exception:
+                        break
+                    if not byte:
+                        break
+                    buf += byte
+                    if buf.endswith(b'\n'):
+                        return buf
+                else:
+                    time.sleep(0.05)
+            return None
+        else:
+            import threading as _t
+            result = [None]
+            def _r():
+                try: result[0] = self._proc.stdout.readline()
+                except Exception: pass
+            t = _t.Thread(target=_r, daemon=True)
+            t.start(); t.join(timeout)
+            return result[0]
 
     def load(self, path: Path, timeout: int = 10):
         import tempfile, os as _os
@@ -264,7 +295,6 @@ class _RawWorker:
         _os.close(fd)
         try:
             with self._lock:
-                # Pošli cestu workeru
                 try:
                     line = f"{path}\t{tmpf}\n".encode()
                     self._proc.stdin.write(line)
@@ -273,12 +303,13 @@ class _RawWorker:
                     self._start()
                     return _extract_jpeg_binary(path)
 
-                resp = self._readline_timeout(timeout)
+                resp = self._peek_readline(timeout)
 
                 if resp is None or self._proc.poll() is not None:
-                    # Worker crashnul nebo timeout — restart, zkus binary fallback
                     print(f"  [WARN] {path.name}: worker crash/timeout, binary fallback", flush=True)
-                    try: self._proc.kill()
+                    try:
+                        self._proc.kill()
+                        self._proc.wait(timeout=2)  # počkej na uvolnění file handle
                     except Exception: pass
                     self._start()
                     return _extract_jpeg_binary(path)
