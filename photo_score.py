@@ -164,10 +164,14 @@ KRAJINA_PORTRAIT_MARGIN = 0.008
 
 # CLIP prompty – vyraz obliceje (spolehlivejsi nez DeepFace pro outdoor)
 FACE_PROMPTS = {
-    "smile":   ["a person smiling happily", "a happy smiling face", "joyful expression"],
-    "neutral": ["a person with neutral expression", "calm neutral face looking at camera"],
-    "bad":     ["a person with eyes closed", "bad expression closed eyes",
-                "a person not looking at camera eyes shut"],
+    "smile":   ["a person smiling happily", "a happy smiling face", "joyful expression",
+                "person with a big smile teeth showing"],
+    "neutral": ["a person with calm neutral relaxed expression",
+                "person looking slightly away with open eyes relaxed face",
+                "calm composed face outdoors natural expression"],
+    "bad":     ["a person with both eyes completely closed blinking",
+                "eyes shut closed grimacing bad expression",
+                "person squinting eyes almost closed unflattering expression"],
 }
 
 # ── Pomocne funkce ────────────────────────────────────────────────────────────
@@ -516,7 +520,7 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
     if gap > 0.005:
         emotion = "smile"
         fscore  = min(gap * 30, 1.0)
-    elif bad_s > smile_s + 0.003:
+    elif bad_s > smile_s + 0.008:
         emotion = "bad"
         fscore  = -min((bad_s - smile_s) * 30, 0.8)
     else:
