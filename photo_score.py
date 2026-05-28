@@ -11,7 +11,7 @@ Zaroven spust server pro otevirani souboru:
     python photo_server.py
 """
 
-import argparse, json, sys, time
+import argparse, json, os, sys, time
 from pathlib import Path
 import io as _io
 if hasattr(sys.stdout, 'buffer'):
@@ -707,11 +707,13 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         line = f"{time.time():.1f} {msg}\n"
         _tlog.write(line)
 
-    for _i, photo_path in enumerate(tqdm(photos, unit="foto")):
+    for _i, photo_path in enumerate(tqdm(photos, unit="foto", file=open(os.devnull, 'w'))):
+        _t(f"loop_top {_i+1} {photo_path.name}")
         print(f"PROGRESS:{_i+1}:{len(photos)}", flush=True)
+        _t(f"after_PROGRESS {_i+1}")
         print(f"FILE:{photo_path.name}", flush=True)
+        _t(f"after_FILE {photo_path.name}")
         _step_t = time.time()
-        _t(f"FILE {photo_path.name}")
         img = load_image(photo_path)
         _t(f"load_image done {time.time()-_step_t:.2f}s img={'ok' if img else 'None'}")
         if img is None:
