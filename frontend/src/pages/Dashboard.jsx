@@ -212,8 +212,10 @@ export default function Dashboard() {
             onClick={handleRegroup}
             disabled={regrouping}
             title="Přepočítat skupiny s aktuálním prahem (bez nového scanu)"
-            className="px-2 py-1 border border-border rounded text-muted hover:border-accent hover:text-accent transition disabled:opacity-40 disabled:cursor-not-allowed">
-            {regrouping ? '…' : '⟳ skupiny'}
+            className="flex items-center gap-1.5 px-2 py-1 border border-border rounded text-muted hover:border-accent hover:text-accent transition disabled:opacity-40 disabled:cursor-not-allowed">
+            {regrouping
+              ? <><span className="inline-block w-3 h-3 border-2 border-accent2 border-t-transparent rounded-full animate-spin" />přepočítávám…</>
+              : '⟳ skupiny'}
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -244,6 +246,17 @@ export default function Dashboard() {
         cardSize={cardSize}
         onCardSizeChange={setCardSize}
       />
+
+      {/* Regroup overlay */}
+      {regrouping && (
+        <div className="fixed inset-0 z-40 bg-black/60 flex flex-col items-center justify-center gap-4">
+          <div className="w-10 h-10 border-4 border-accent2 border-t-transparent rounded-full animate-spin" />
+          <div className="text-center">
+            <p className="text-accent2 font-bold text-base">Přepočítávám skupiny…</p>
+            <p className="text-muted text-xs mt-1">Načítám pHash z miniatur a hledám podobné fotografie</p>
+          </div>
+        </div>
+      )}
 
       {/* Photo grid */}
       {loading ? (
