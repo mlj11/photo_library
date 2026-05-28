@@ -172,7 +172,7 @@ FACE_PROMPTS = {
     "smile":      ["a person smiling happily with a visible smile",
                    "a happy smiling face with teeth showing",
                    "joyful laughing expression big smile"],
-    "prekvapeni": ["children with mouth wide open in amazement surprise excited reaction",
+    "wow":        ["children with mouth wide open in amazement surprise excited reaction",
                    "person with open mouth wide eyes surprised delighted wow expression",
                    "amazed excited child mouth open in wonder looking at something"],
     "neutral":    ["a child or person looking directly at the camera with a calm serious expression",
@@ -524,14 +524,14 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
 
     smile_s = scores["smile"]
     bad_s   = scores["bad"]
-    wow_s   = scores["prekvapeni"]
+    wow_s   = scores["wow"]
     gap     = smile_s - bad_s
 
     if gap > 0.005:
         emotion = "smile"
         fscore  = min(gap * 30, 1.0)
     elif wow_s > smile_s + 0.004 and wow_s > bad_s + 0.006:
-        emotion = "prekvapeni"
+        emotion = "wow"
         fscore  = min((wow_s - smile_s) * 20, 0.6)
     elif bad_s > smile_s + 0.012:
         emotion = "bad"
