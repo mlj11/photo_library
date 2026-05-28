@@ -171,35 +171,146 @@ def get_device():
         return torch.device("cuda")
     return torch.device("cpu")
 
+# ── Perzistentní RAW worker (jeden subprocess na celý scan) ───────────────────
+_RAW_WORKER_CODE = r"""
+import sys, rawpy, numpy as np, io, os
+
+# Unbuffered binary stdout pro předávání dat
+out = open(sys.stdout.fileno(), 'wb', buffering=0)
+inp = open(sys.stdin.fileno(),  'r',  buffering=1)
+
+while True:
+    line = inp.readline()
+    if not line:
+        break
+    parts = line.rstrip('\n').split('\t', 1)
+    path_in, tmpf = parts[0], parts[1]
+    try:
+        with rawpy.imread(path_in) as raw:
+            try:
+                from rawpy import ThumbFormat
+                td = raw.extract_thumb()
+                if td.format == ThumbFormat.JPEG:
+                    from PIL import Image as _Img
+                    img = _Img.open(io.BytesIO(td.data)).convert('RGB')
+                    np.save(tmpf, np.array(img))
+                    out.write(b'OK\n'); continue
+            except Exception:
+                pass
+            rgb = raw.postprocess(use_camera_wb=True, half_size=True,
+                                  no_auto_bright=False, output_bps=8)
+            np.save(tmpf, rgb)
+            out.write(b'OK\n')
+    except Exception as e:
+        out.write(b'ERR\n')
+"""
+
+class _RawWorker:
+    """Jeden perzistentní subprocess pro celý scan. Pokud crashne, restartuje se."""
+    def __init__(self):
+        self._proc = None
+        self._lock = __import__('threading').Lock()
+        self._start()
+
+    def _start(self):
+        import subprocess as _sp
+        self._proc = _sp.Popen(
+            [sys.executable, '-u', '-c', _RAW_WORKER_CODE],
+            stdin=_sp.PIPE, stdout=_sp.PIPE, stderr=_sp.DEVNULL,
+            bufsize=0,
+        )
+
+    def _readline_timeout(self, timeout=60):
+        import threading as _t
+        result = [None]
+        def _r():
+            try: result[0] = self._proc.stdout.readline()
+            except Exception: pass
+        t = _t.Thread(target=_r, daemon=True)
+        t.start(); t.join(timeout)
+        return result[0]
+
+    def load(self, path: Path, timeout: int = 60):
+        import tempfile, os as _os
+        fd, tmpf = tempfile.mkstemp()
+        _os.close(fd)
+        try:
+            with self._lock:
+                # Pošli cestu workeru
+                try:
+                    line = f"{path}\t{tmpf}\n".encode()
+                    self._proc.stdin.write(line)
+                    self._proc.stdin.flush()
+                except Exception:
+                    self._start()
+                    return None
+
+                resp = self._readline_timeout(timeout)
+
+                if resp is None or self._proc.poll() is not None:
+                    # Worker crashnul nebo timeout — restart
+                    print(f"  [SKIP] {path.name}: worker crash/timeout, restart", flush=True)
+                    try: self._proc.kill()
+                    except Exception: pass
+                    self._start()
+                    return None
+
+                if resp.strip() == b'OK':
+                    npy = tmpf + '.npy'
+                    src = npy if _os.path.exists(npy) else tmpf
+                    arr = np.load(src)
+                    return Image.fromarray(arr.astype(np.uint8))
+
+                print(f"  [WARN] {path.name}: rawpy ERR", flush=True)
+        except Exception as e:
+            print(f"  [WARN] {path.name}: {e}", flush=True)
+        finally:
+            for p in (tmpf, tmpf + '.npy'):
+                try: _os.unlink(p)
+                except: pass
+        return None
+
+    def close(self):
+        try:
+            self._proc.stdin.close()
+            self._proc.wait(timeout=3)
+        except Exception:
+            try: self._proc.kill()
+            except Exception: pass
+
+_raw_worker: "_RawWorker | None" = None
+
+
 def load_image(path: Path):
+    global _raw_worker
     try:
         if path.suffix.lower() in SUPPORTED_RAW:
-            with rawpy.imread(str(path)) as raw:
-                rgb = raw.postprocess(use_camera_wb=True, half_size=True,
-                                      no_auto_bright=False, output_bps=8)
-            return Image.fromarray(rgb)
-        else:
-            return Image.open(path).convert("RGB")
+            if _raw_worker is None:
+                _raw_worker = _RawWorker()
+            return _raw_worker.load(path)
+        return Image.open(path).convert("RGB")
     except Exception as e:
         print(f"  [WARN] {path.name}: {e}")
         return None
 
-def make_thumbnail(src: Path, dst: Path, size: int) -> bool:
+def make_thumbnail(src: Path, dst: Path, size: int, img: "Image.Image | None" = None) -> bool:
     try:
-        if src.suffix.lower() in SUPPORTED_RAW:
-            with rawpy.imread(str(src)) as raw:
-                try:
-                    td = raw.extract_thumb()
-                    if td.format == rawpy.ThumbFormat.JPEG:
-                        import io as _b
-                        img = Image.open(_b.BytesIO(td.data)).convert("RGB")
-                    else: raise ValueError()
-                except Exception:
-                    rgb = raw.postprocess(use_camera_wb=True, half_size=True,
-                                          no_auto_bright=False, output_bps=8)
-                    img = Image.fromarray(rgb)
-        else:
-            img = Image.open(src).convert("RGB")
+        if img is None:
+            if src.suffix.lower() in SUPPORTED_RAW:
+                with rawpy.imread(str(src)) as raw:
+                    try:
+                        td = raw.extract_thumb()
+                        if td.format == rawpy.ThumbFormat.JPEG:
+                            import io as _b
+                            img = Image.open(_b.BytesIO(td.data)).convert("RGB")
+                        else: raise ValueError()
+                    except Exception:
+                        rgb = raw.postprocess(use_camera_wb=True, half_size=True,
+                                              no_auto_bright=False, output_bps=8)
+                        img = Image.fromarray(rgb)
+            else:
+                img = Image.open(src).convert("RGB")
+        img = img.copy()
         img.thumbnail((size, size), Image.LANCZOS)
         img.save(dst, "JPEG", quality=85, optimize=True)
         return True
@@ -454,14 +565,18 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
                  db_path: Path = None, session_name: str = "",
                  clip_model: str = "ViT-L/14", neg_weight: float = 0.7,
                  phash_threshold: float = 0.83, dof_peak_min: float = 120,
-                 dof_ratio: float = 2.5, blur_penalty_thr: float = 40):
+                 dof_ratio: float = 2.5, blur_penalty_thr: float = 40,
+                 skip_files: list = None):
     print("\n" + "="*60)
     print("  PHOTO SCORER v2")
     print("="*60)
 
+    skip_set = {s.strip().lower() for s in (skip_files or []) if s.strip()}
+
     photos = sorted([
         p for p in input_dir.iterdir()
         if p.is_file() and p.suffix.lower() in SUPPORTED_ALL
+        and p.name.lower() not in skip_set
     ])
     if not photos:
         print(f"[ERR] Zadne fotky v {input_dir}")
@@ -506,6 +621,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
 
     for _i, photo_path in enumerate(tqdm(photos, unit="foto")):
         print(f"PROGRESS:{_i+1}:{len(photos)}", flush=True)
+        print(f"FILE:{photo_path.name}", flush=True)
         img = load_image(photo_path)
         if img is None:
             continue
@@ -564,7 +680,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
 
         # Thumbnail
         tname = f"{photo_path.stem}.jpg"
-        make_thumbnail(photo_path, output_dir / "_thumbs" / tname, thumb_size)
+        make_thumbnail(photo_path, output_dir / "_thumbs" / tname, thumb_size, img=img)
 
         results.append({
             "name":      photo_path.name,
@@ -591,6 +707,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
 
     elapsed = time.time() - start
     print(f"\n[TIME] {elapsed:.1f}s  ({elapsed/max(len(results),1):.2f}s/foto)")
+
+    if _raw_worker:
+        _raw_worker.close()
 
     # Deduplikacni skupiny
     print(f"PHASE:dedup:0", flush=True)
@@ -1276,11 +1395,13 @@ if __name__ == "__main__":
     parser.add_argument("--blur-penalty-thr", type=float, default=40)
     parser.add_argument("--db",              default="")
     parser.add_argument("--session-name",    default="")
+    parser.add_argument("--skip-files",      default="", help="Čárkou oddělené názvy souborů k přeskočení")
     args = parser.parse_args()
 
     input_dir  = Path(args.input)
     output_dir = Path(args.output) if args.output else input_dir / "_dashboard"
     db_path    = Path(args.db) if args.db else Path(r"C:\ML\photo_library.db")
+    skip_files = [s.strip() for s in args.skip_files.split(",") if s.strip()]
 
     score_photos(
         input_dir, output_dir, args.sort, args.thumb_size, args.dedup_thr,
@@ -1288,4 +1409,5 @@ if __name__ == "__main__":
         clip_model=args.clip_model, neg_weight=args.neg_weight,
         phash_threshold=args.phash_thr, dof_peak_min=args.dof_peak_min,
         dof_ratio=args.dof_ratio, blur_penalty_thr=args.blur_penalty_thr,
+        skip_files=skip_files,
     )
