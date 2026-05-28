@@ -1,6 +1,58 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 
+function SkipFilesEditor({ value, onChange }) {
+  const [input, setInput] = useState('')
+
+  function add() {
+    const name = input.trim()
+    if (!name || value.includes(name)) { setInput(''); return }
+    onChange([...value, name])
+    setInput('')
+  }
+
+  function remove(name) {
+    onChange(value.filter(f => f !== name))
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {value.length === 0 && (
+        <p className="text-muted text-[0.6rem] italic">Žádné soubory k přeskočení.</p>
+      )}
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {value.map(name => (
+            <span key={name} className="flex items-center gap-1 bg-bg border border-border rounded px-2 py-0.5 text-xs font-mono text-txt">
+              {name}
+              <button
+                type="button"
+                onClick={() => remove(name)}
+                className="text-muted hover:text-bad leading-none ml-0.5">✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
+          placeholder="S3_06811.ARW"
+          className="flex-1 bg-bg border border-border rounded px-2 py-1.5 text-xs text-txt font-mono focus:border-accent outline-none"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="px-2 py-1.5 text-xs bg-border text-txt rounded hover:bg-muted/30 transition whitespace-nowrap">
+          + Přidat
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const FIELDS = [
   {
     group: 'CLIP model',
@@ -176,12 +228,9 @@ export default function SettingsModal({ onClose }) {
                     )}
 
                     {f.type === 'textarea' && (
-                      <textarea
-                        rows={4}
-                        value={(config[f.key] || []).join('\n')}
-                        onChange={e => set(f.key, e.target.value.split('\n').map(s => s.trim()).filter(Boolean))}
-                        placeholder="S3_06811.ARW"
-                        className="w-full bg-bg border border-border rounded px-2 py-1.5 text-xs text-txt font-mono focus:border-accent outline-none resize-none"
+                      <SkipFilesEditor
+                        value={config[f.key] || []}
+                        onChange={v => set(f.key, v)}
                       />
                     )}
 
