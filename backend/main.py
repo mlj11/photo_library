@@ -29,6 +29,7 @@ app.add_middleware(
 
 # Scan jobs persisted to disk so they survive backend restarts
 _scan_jobs: dict[str, dict] = {}
+_scan_procs: dict[str, subprocess.Popen] = {}   # live proc handles for cancel
 _JOBS_FILE = Path(__file__).parent / "jobs.json"
 _jobs_lock = threading.Lock()
 
@@ -142,6 +143,7 @@ def create_session(req: SessionCreate):
                 bufsize=1,
                 env=env,
             )
+            _scan_procs[job_id] = proc
             _scan_jobs[job_id]["pid"] = proc.pid
             _persist_jobs()
             _last_persist = [0]
@@ -188,7 +190,8 @@ def create_session(req: SessionCreate):
                         pass
             proc.wait()
             _stderr_thread.join(timeout=2)
-            if proc.returncode != 0:
+            _scan_procs.pop(job_id, None)
+            if proc.returncode != 0 and _scan_jobs[job_id].get("status") != "cancelled":
                 _TF_NOISE = ("absl::InitializeLog", "oneDNN", "TF_ENABLE_ONEDNN",
                              "WARNING:tensorflow", "WARNING:absl", "I0000")
                 signal_lines = [l for l in stderr_lines if not any(n in l for n in _TF_NOISE)]
@@ -196,10 +199,11 @@ def create_session(req: SessionCreate):
                 last_err = " | ".join(tail) if tail else ""
                 _scan_jobs[job_id]["status"] = "error"
                 _scan_jobs[job_id]["error"] = f"exit code {proc.returncode}" + (f": {last_err}" if last_err else "")
-            else:
+            elif _scan_jobs[job_id].get("status") != "cancelled":
                 _scan_jobs[job_id]["status"] = "done"
             _persist_jobs()
         except Exception as e:
+            _scan_procs.pop(job_id, None)
             _scan_jobs[job_id]["status"] = "error"
             _scan_jobs[job_id]["error"] = str(e)
             _persist_jobs()
@@ -232,6 +236,25 @@ def get_job_status(job_id: str):
     if job_id not in _scan_jobs:
         raise HTTPException(404, "Job not found")
     return _scan_jobs[job_id]
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    if job_id not in _scan_jobs:
+        raise HTTPException(404, "Job not found")
+    job = _scan_jobs[job_id]
+    if job.get("status") != "running":
+        raise HTTPException(400, "Job is not running")
+    proc = _scan_procs.get(job_id)
+    if proc:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    job["status"] = "cancelled"
+    job["error"] = "Zrušeno uživatelem"
+    _persist_jobs()
+    return {"ok": True}
 
 
 @app.get("/api/sessions/{session_id}")

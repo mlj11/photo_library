@@ -69,6 +69,9 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  cancelJob: (jobId) =>
+    req(`/api/jobs/${jobId}/cancel`, { method: 'POST' }),
+
   regroupSession: (id) =>
     req(`/api/sessions/${id}/regroup`, { method: 'POST' }),
 }

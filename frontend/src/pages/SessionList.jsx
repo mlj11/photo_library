@@ -127,14 +127,15 @@ const PHASE_LABEL = {
   saving:        'Ukládám do DB',
 }
 
-function JobBanner({ job, onDismiss }) {
+function JobBanner({ job, onDismiss, onCancel }) {
   if (!job) return null
 
-  const isRunning = job.status === 'running'
-  const isError   = job.status === 'error'
-  const isDone    = job.status === 'done'
-  const borderColor = isError ? '#c0392b' : isDone ? '#27ae60' : '#3d9eff'
-  const textColor   = isError ? '#c0392b' : isDone ? '#27ae60' : '#3d9eff'
+  const isRunning   = job.status === 'running'
+  const isError     = job.status === 'error'
+  const isDone      = job.status === 'done'
+  const isCancelled = job.status === 'cancelled'
+  const borderColor = isError || isCancelled ? '#c0392b' : isDone ? '#27ae60' : '#3d9eff'
+  const textColor   = isError || isCancelled ? '#c0392b' : isDone ? '#27ae60' : '#3d9eff'
 
   const pct = job.total > 0 ? Math.round(job.current / job.total * 100) : 0
   const phaseLabel = PHASE_LABEL[job.phase] ?? 'Probíhá...'
@@ -155,6 +156,7 @@ function JobBanner({ job, onDismiss }) {
         <span style={{ color: textColor }} className="font-semibold">
           {isDone && '✓ Scan dokončen'}
           {isError && `✕ Scan selhal${job.error ? ': ' + job.error : ''}`}
+          {isCancelled && '⊘ Scan zrušen'}
           {isRunning && phaseLabel}
         </span>
 
@@ -171,6 +173,12 @@ function JobBanner({ job, onDismiss }) {
         )}
 
         <span className="text-muted text-[0.6rem] ml-1">#{job.id}</span>
+        {isRunning && (
+          <button
+            onClick={onCancel}
+            className="ml-auto px-2 py-0.5 text-xs rounded border border-red-700 text-red-400 hover:bg-red-900/30 transition"
+          >Zrušit</button>
+        )}
         {!isRunning && (
           <button onClick={onDismiss} className="ml-auto text-muted hover:text-txt">✕</button>
         )}
@@ -278,7 +286,18 @@ export default function SessionList() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        <JobBanner job={activeJob} onDismiss={() => { setActiveJob(null); localStorage.removeItem('activeJob') }} />
+        <JobBanner
+          job={activeJob}
+          onDismiss={() => { setActiveJob(null); localStorage.removeItem('activeJob') }}
+          onCancel={async () => {
+            try {
+              await api.cancelJob(activeJob.id)
+              setActiveJob(j => ({ ...j, status: 'cancelled', error: 'Zrušeno uživatelem' }))
+            } catch (e) {
+              alert('Nepodařilo se zrušit scan: ' + e.message)
+            }
+          }}
+        />
 
         {loading && <p className="text-muted text-sm">Načítám...</p>}
         {error && <p className="text-bad text-sm">Chyba: {error}</p>}
