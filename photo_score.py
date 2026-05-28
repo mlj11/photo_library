@@ -120,11 +120,11 @@ CAT_PROMPTS = {
         "upper body portrait face occupies most of the image",
     ],
     "portret_stredni": [
-        "a person standing or sitting taking up most of the photo face clearly visible",
-        "full body portrait person dominates the frame head to toe face recognizable",
-        "child or person full body clearly visible large in the frame with background",
-        "two people sitting on rocks foreground portrait face visible",
-        "people in the foreground large in frame landscape behind them",
+        "a person standing still posed taking up most of the photo face clearly visible",
+        "full body posed portrait person dominates the frame not moving face recognizable",
+        "child or person standing still large in the frame posing for photo",
+        "two people sitting still posed on rocks face visible not moving",
+        "posed portrait of people in foreground large in frame not in motion",
     ],
     "portret_vzdaleny": [
         "a person small and distant in a large landscape barely visible",
@@ -143,8 +143,10 @@ CAT_PROMPTS = {
         "close up texture nature photography",
     ],
     "akce":             [
-        "people actively climbing hiking or moving in mountains",
-        "action outdoor candid moment with people moving",
+        "people actively climbing scrambling moving in mountains not posed",
+        "action shot person hiking walking in motion blur candid not standing still",
+        "dynamic outdoor photo people in movement not posing",
+        "person caught in motion running jumping climbing rocks",
     ],
     "scena":            [
         "a wide landscape scene with tiny distant people or objects",
