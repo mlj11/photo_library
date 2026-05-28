@@ -464,7 +464,13 @@ def regroup_session(session_id: int):
         scores  = [r["score"] for r in rows]
         raw_emb = [r["embedding"] for r in rows]
 
-        valid = [(i, np.frombuffer(raw_emb[i], dtype=np.float32))
+        def _load_emb(blob):
+            arr = np.frombuffer(blob, dtype=np.float32)
+            if arr.shape[0] <= 512:  # float16 uloženo jako float32 buffer → přečíst jako float16
+                arr = np.frombuffer(blob, dtype=np.float16).astype(np.float32)
+            return arr
+
+        valid = [(i, _load_emb(raw_emb[i]))
                  for i in range(len(rows)) if raw_emb[i]]
 
         if len(valid) < 2:

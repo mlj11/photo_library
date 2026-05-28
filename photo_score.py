@@ -731,7 +731,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             neg  = (feat @ tf_neg.T).mean().item()
             cat_s = {k: (feat @ tf.T).mean().item() for k, tf in tf_cats.items()}
         clip_s = float(pos - neg * neg_weight)
-        emb    = feat.cpu().numpy().squeeze()
+        emb    = feat.cpu().float().numpy().squeeze()
         embeddings.append(emb)
         # _t(f"clip done {time.time()-_step_t:.2f}s")
 
