@@ -6,6 +6,7 @@ class SessionCreate(BaseModel):
     name: str = ""
     input_dir: str
     output_dir: str = ""
+    start_from: int = 0
 
 
 class SessionUpdate(BaseModel):

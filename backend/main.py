@@ -124,6 +124,7 @@ def create_session(req: SessionCreate):
             "--dof-ratio",      str(cfg["dof_ratio"]),
             "--blur-penalty-thr", str(cfg["blur_penalty_thr"]),
             "--skip-files",       ",".join(cfg.get("skip_files") or []),
+            "--start-from",       str(req.start_from),
         ]
         if req.name:
             cmd += ["--session-name", req.name]

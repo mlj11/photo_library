@@ -342,11 +342,16 @@ _raw_worker: "_RawWorker | None" = None
 
 def load_image(path: Path):
     global _raw_worker
+    import time as _t
     try:
         if path.suffix.lower() in SUPPORTED_RAW:
+            t0 = _t.time()
+            print(f"  [TRACE] load_image: binary_extract start {path.name}", flush=True)
             img = _extract_jpeg_binary(path)
+            print(f"  [TRACE] load_image: binary_extract done {_t.time()-t0:.2f}s img={'ok' if img else 'None'}", flush=True)
             if img is not None:
                 return img
+            print(f"  [TRACE] load_image: falling back to worker {path.name}", flush=True)
             if _raw_worker is None:
                 _raw_worker = _RawWorker()
             return _raw_worker.load(path)
@@ -628,7 +633,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
                  clip_model: str = "ViT-L/14", neg_weight: float = 0.7,
                  phash_threshold: float = 0.83, dof_peak_min: float = 120,
                  dof_ratio: float = 2.5, blur_penalty_thr: float = 40,
-                 skip_files: list = None):
+                 skip_files: list = None, start_from: int = 0):
     print("\n" + "="*60)
     print("  PHOTO SCORER v2")
     print("="*60)
@@ -640,6 +645,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         if p.is_file() and p.suffix.lower() in SUPPORTED_ALL
         and p.name.lower() not in skip_set
     ])
+    if start_from > 0:
+        print(f"[INFO] Přeskakuji prvních {start_from} souborů (start_from={start_from})", flush=True)
+        photos = photos[start_from:]
     if not photos:
         print(f"[ERR] Zadne fotky v {input_dir}")
         sys.exit(1)
@@ -684,11 +692,14 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     for _i, photo_path in enumerate(tqdm(photos, unit="foto")):
         print(f"PROGRESS:{_i+1}:{len(photos)}", flush=True)
         print(f"FILE:{photo_path.name}", flush=True)
+        _step_t = time.time()
         img = load_image(photo_path)
+        print(f"  [TRACE] load_image done {time.time()-_step_t:.2f}s", flush=True)
         if img is None:
             continue
 
         # CLIP embedding + quality score
+        _step_t = time.time()
         img_t = preprocess(img).unsqueeze(0).to(device)
         with torch.no_grad():
             feat = model.encode_image(img_t)
@@ -699,6 +710,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         clip_s = float(pos - neg * neg_weight)
         emb    = feat.cpu().numpy().squeeze()
         embeddings.append(emb)
+        print(f"  [TRACE] clip done {time.time()-_step_t:.2f}s", flush=True)
 
         # pHash ihned – obraz se pak uvolni
         if HAS_IMAGEHASH:
@@ -725,15 +737,21 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         is_portrait = category in ("portret_blizky", "portret_vzdaleny")
 
         # Ostrost (DOF-aware)
+        _step_t = time.time()
         sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
+        print(f"  [TRACE] sharp done {time.time()-_step_t:.2f}s", flush=True)
 
         # Kompozice
+        _step_t = time.time()
         comp = round(composition_score(img), 3)
+        print(f"  [TRACE] comp done {time.time()-_step_t:.2f}s", flush=True)
 
         # Vyraz obliceje (CLIP-based, jen pro portréty)
         face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0}
         if is_portrait:
+            _step_t = time.time()
             face = analyze_face_clip(img, model, preprocess, tf_face, device)
+            print(f"  [TRACE] face done {time.time()-_step_t:.2f}s", flush=True)
 
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
@@ -741,8 +759,10 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             total += face["face_score"] * 0.3
 
         # Thumbnail
+        _step_t = time.time()
         tname = f"{photo_path.stem}.jpg"
         make_thumbnail(photo_path, output_dir / "_thumbs" / tname, thumb_size, img=img)
+        print(f"  [TRACE] thumb done {time.time()-_step_t:.2f}s", flush=True)
 
         results.append({
             "name":      photo_path.name,
@@ -1458,6 +1478,7 @@ if __name__ == "__main__":
     parser.add_argument("--db",              default="")
     parser.add_argument("--session-name",    default="")
     parser.add_argument("--skip-files",      default="", help="Čárkou oddělené názvy souborů k přeskočení")
+    parser.add_argument("--start-from",     default=0, type=int, help="Přeskoč prvních N souborů (pro debugging)")
     args = parser.parse_args()
 
     input_dir  = Path(args.input)
@@ -1471,5 +1492,5 @@ if __name__ == "__main__":
         clip_model=args.clip_model, neg_weight=args.neg_weight,
         phash_threshold=args.phash_thr, dof_peak_min=args.dof_peak_min,
         dof_ratio=args.dof_ratio, blur_penalty_thr=args.blur_penalty_thr,
-        skip_files=skip_files,
+        skip_files=skip_files, start_from=args.start_from,
     )
