@@ -123,11 +123,15 @@ CAT_PROMPTS = {
         "a person full body visible standing in a landscape",
         "full length portrait of a person outdoors whole body in frame head to toe",
         "person standing in mountains visible from head to toe",
+        "two people sitting on rocks outdoors in mountains",
+        "children or people sitting resting outdoors nature background",
+        "people in the foreground with landscape behind them",
     ],
     "krajina":          [
-        "a dramatic mountain landscape with no people",
-        "scenic nature landscape, no humans present",
-        "wide angle nature photo mountains forest",
+        "a dramatic mountain landscape with absolutely no people present anywhere",
+        "scenic nature landscape with zero humans no people",
+        "wide angle nature photo mountains forest completely empty of people",
+        "landscape only photo no humans no faces no bodies",
     ],
     "detail":           [
         "a macro detail of nature rocks or flowers",
@@ -153,6 +157,10 @@ PORTRET_V_MARGIN = 0.003
 # Pokud portret_blizky skoro vyrovnava portret_vzdaleny (< tento prah),
 # klasifikujeme jako portret_blizky
 PORTRET_B_MARGIN = 0.002
+
+# Pokud krajina vyhraje, ale nejlepsi portret je v tomto dosahu od krajiny,
+# uprednostnime portret (lide v popredi nesmí byt klasifikovani jako krajina)
+KRAJINA_PORTRAIT_MARGIN = 0.008
 
 # CLIP prompty – vyraz obliceje (spolehlivejsi nez DeepFace pro outdoor)
 FACE_PROMPTS = {
@@ -749,6 +757,15 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
 
         # Kategorie – s korekcí pro portret_vzdaleny vs scena
         category = max(cat_s, key=cat_s.get)
+
+        # krajina nesmí vyhrát pokud je portrét v dosahu – lide v popredi
+        if category == "krajina":
+            best_portrait = max(cat_s.get("portret_blizky", 0), cat_s.get("portret_vzdaleny", 0))
+            if cat_s["krajina"] - best_portrait < KRAJINA_PORTRAIT_MARGIN:
+                if cat_s.get("portret_blizky", 0) >= cat_s.get("portret_vzdaleny", 0):
+                    category = "portret_blizky"
+                else:
+                    category = "portret_vzdaleny"
 
         # portret_vzdaleny vs scena: pokud rozdil maly -> degraduj na scena
         if category == "portret_vzdaleny":
