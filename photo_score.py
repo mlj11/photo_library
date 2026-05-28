@@ -781,7 +781,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             if cat_s["portret_vzdaleny"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
                 category = "portret_blizky"
 
-        is_portrait = category in ("portret_blizky", "portret_vzdaleny")
+        is_portrait = category == "portret_blizky"  # analýza obličeje jen pro blízké portréty
 
         # Ostrost (DOF-aware)
         _step_t = time.time()
