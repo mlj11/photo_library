@@ -344,6 +344,9 @@ def load_image(path: Path):
     global _raw_worker
     try:
         if path.suffix.lower() in SUPPORTED_RAW:
+            img = _extract_jpeg_binary(path)
+            if img is not None:
+                return img
             if _raw_worker is None:
                 _raw_worker = _RawWorker()
             return _raw_worker.load(path)
