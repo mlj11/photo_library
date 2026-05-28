@@ -126,6 +126,7 @@ CAT_PROMPTS = {
         "two or three people posing together for a photo faces visible standing still",
         "group of children posing for a photo outdoors faces clearly visible",
         "posed portrait of people in foreground large in frame other people walking behind",
+        "two children lying on rock smiling faces visible playful posed photo",
     ],
     "portret_vzdaleny": [
         "a person small and distant in a large landscape barely visible",
@@ -144,10 +145,10 @@ CAT_PROMPTS = {
         "close up texture nature photography",
     ],
     "akce":             [
-        "the main subject of the photo is actively climbing scrambling moving not sitting still",
-        "primary person in foreground caught in motion walking running jumping not posed",
-        "action shot where the closest subject is moving dynamically not resting",
-        "main foreground person in dynamic motion climbing hiking not posing for camera",
+        "the main subject of the photo is actively climbing scrambling walking moving",
+        "primary person in foreground caught in motion hiking running jumping",
+        "action shot main subject moving dynamically through terrain not lying down not posing",
+        "main foreground person in dynamic motion on trail or mountain not lying still",
     ],
     "scena":            [
         "a wide landscape scene with tiny distant people or objects",
