@@ -145,10 +145,11 @@ CAT_PROMPTS = {
         "close up texture nature photography",
     ],
     "akce":             [
-        "the main subject of the photo is actively climbing scrambling walking moving",
-        "primary person in foreground caught in motion hiking running jumping",
-        "action shot main subject moving dynamically through terrain not lying down not posing",
-        "main foreground person in dynamic motion on trail or mountain not lying still",
+        "people hiking walking on a mountain trail actively moving not posing",
+        "two people walking on rocky path in mountain landscape in motion",
+        "hikers moving along trail in mountains clearly walking not standing still",
+        "action shot person or people moving dynamically through mountain terrain",
+        "people in motion on mountain trail caught while walking hiking",
     ],
     "scena":            [
         "a wide landscape scene with tiny distant people or objects",
@@ -775,17 +776,17 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Kategorie
         category = max(cat_s, key=cat_s.get)
 
-        # krajina nesmí vyhrát pokud je portrét v dosahu – lide v popredi
+        # krajina nesmí vyhrát pokud jsou lide viditelni (portret nebo akce v dosahu)
         if category == "krajina":
-            best_portrait = max(
+            best_people = max(
                 cat_s.get("portret_blizky", 0),
                 cat_s.get("portret_stredni", 0),
                 cat_s.get("portret_vzdaleny", 0),
+                cat_s.get("akce", 0),
             )
-            if cat_s["krajina"] - best_portrait < KRAJINA_PORTRAIT_MARGIN:
-                # vyber nejlepsi portretovou kategorii
+            if cat_s["krajina"] - best_people < KRAJINA_PORTRAIT_MARGIN:
                 category = max(
-                    ["portret_blizky", "portret_stredni", "portret_vzdaleny"],
+                    ["portret_blizky", "portret_stredni", "portret_vzdaleny", "akce"],
                     key=lambda k: cat_s.get(k, 0)
                 )
 
