@@ -122,6 +122,7 @@ def create_session(req: SessionCreate):
             "--dof-peak-min",   str(cfg["dof_peak_min"]),
             "--dof-ratio",      str(cfg["dof_ratio"]),
             "--blur-penalty-thr", str(cfg["blur_penalty_thr"]),
+            "--skip-files",       ",".join(cfg.get("skip_files") or []),
         ]
         if req.name:
             cmd += ["--session-name", req.name]
@@ -172,6 +173,8 @@ def create_session(req: SessionCreate):
                             _persist_jobs()
                     except ValueError:
                         pass
+                elif line.startswith("FILE:"):
+                    _scan_jobs[job_id]["current_file"] = line[5:]
                 elif line.startswith("PHASE:"):
                     try:
                         parts = line.split(":")
@@ -184,7 +187,11 @@ def create_session(req: SessionCreate):
             proc.wait()
             _stderr_thread.join(timeout=2)
             if proc.returncode != 0:
-                last_err = " | ".join(stderr_lines[-6:]) if stderr_lines else ""
+                _TF_NOISE = ("absl::InitializeLog", "oneDNN", "TF_ENABLE_ONEDNN",
+                             "WARNING:tensorflow", "WARNING:absl", "I0000")
+                signal_lines = [l for l in stderr_lines if not any(n in l for n in _TF_NOISE)]
+                tail = signal_lines[-20:] if signal_lines else stderr_lines[-20:]
+                last_err = " | ".join(tail) if tail else ""
                 _scan_jobs[job_id]["status"] = "error"
                 _scan_jobs[job_id]["error"] = f"exit code {proc.returncode}" + (f": {last_err}" if last_err else "")
             else:
