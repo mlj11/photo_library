@@ -171,6 +171,34 @@ def get_device():
         return torch.device("cuda")
     return torch.device("cpu")
 
+# ── Binary JPEG fallback (pro RAW soubory kde rawpy visí) ────────────────────
+def _extract_jpeg_binary(path: Path) -> "Image.Image | None":
+    """Najde největší embedded JPEG v binárním souboru (preview v RAW/ARW).
+    Bezpečné – žádný nativní kód, jen skenování bytů."""
+    try:
+        import io as _io
+        data = path.read_bytes()
+        best_size = 0
+        best_data = None
+        pos = 0
+        while True:
+            idx = data.find(b'\xff\xd8\xff', pos)
+            if idx == -1:
+                break
+            end = data.find(b'\xff\xd9', idx + 4)
+            if end != -1:
+                size = end + 2 - idx
+                if size > best_size:
+                    best_size = size
+                    best_data = data[idx:end + 2]
+            pos = idx + 1
+        if best_data is not None:
+            return Image.open(_io.BytesIO(best_data)).convert('RGB')
+    except Exception:
+        pass
+    return None
+
+
 # ── Perzistentní RAW worker (jeden subprocess na celý scan) ───────────────────
 _RAW_WORKER_CODE = r"""
 import sys, rawpy, numpy as np, io, os
@@ -220,7 +248,7 @@ class _RawWorker:
             bufsize=0,
         )
 
-    def _readline_timeout(self, timeout=60):
+    def _readline_timeout(self, timeout=10):
         import threading as _t
         result = [None]
         def _r():
@@ -230,7 +258,7 @@ class _RawWorker:
         t.start(); t.join(timeout)
         return result[0]
 
-    def load(self, path: Path, timeout: int = 60):
+    def load(self, path: Path, timeout: int = 10):
         import tempfile, os as _os
         fd, tmpf = tempfile.mkstemp()
         _os.close(fd)
@@ -243,17 +271,17 @@ class _RawWorker:
                     self._proc.stdin.flush()
                 except Exception:
                     self._start()
-                    return None
+                    return _extract_jpeg_binary(path)
 
                 resp = self._readline_timeout(timeout)
 
                 if resp is None or self._proc.poll() is not None:
-                    # Worker crashnul nebo timeout — restart
-                    print(f"  [SKIP] {path.name}: worker crash/timeout, restart", flush=True)
+                    # Worker crashnul nebo timeout — restart, zkus binary fallback
+                    print(f"  [WARN] {path.name}: worker crash/timeout, binary fallback", flush=True)
                     try: self._proc.kill()
                     except Exception: pass
                     self._start()
-                    return None
+                    return _extract_jpeg_binary(path)
 
                 if resp.strip() == b'OK':
                     npy = tmpf + '.npy'
@@ -261,14 +289,14 @@ class _RawWorker:
                     arr = np.load(src)
                     return Image.fromarray(arr.astype(np.uint8))
 
-                print(f"  [WARN] {path.name}: rawpy ERR", flush=True)
+                print(f"  [WARN] {path.name}: rawpy ERR, binary fallback", flush=True)
         except Exception as e:
             print(f"  [WARN] {path.name}: {e}", flush=True)
         finally:
             for p in (tmpf, tmpf + '.npy'):
                 try: _os.unlink(p)
                 except: pass
-        return None
+        return _extract_jpeg_binary(path)
 
     def close(self):
         try:
