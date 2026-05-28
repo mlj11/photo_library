@@ -116,16 +116,21 @@ CAT_PROMPTS = {
     "portret_blizky": [
         "a close up portrait face fills the entire frame minimal background",
         "head and shoulders portrait very close to camera face dominates photo",
-        "extreme close up of a person face no full body visible",
-        "tight facial portrait face occupies most of the image",
+        "tight facial portrait from head to chest face clearly visible and large",
+        "upper body portrait face occupies most of the image",
+    ],
+    "portret_stredni": [
+        "a person standing or sitting taking up most of the photo face clearly visible",
+        "full body portrait person dominates the frame head to toe face recognizable",
+        "child or person full body clearly visible large in the frame with background",
+        "two people sitting on rocks foreground portrait face visible",
+        "people in the foreground large in frame landscape behind them",
     ],
     "portret_vzdaleny": [
-        "a person full body visible standing in a landscape",
-        "full length portrait of a person outdoors whole body in frame head to toe",
-        "person standing in mountains visible from head to toe",
-        "two people sitting on rocks outdoors in mountains",
-        "children or people sitting resting outdoors nature background",
-        "people in the foreground with landscape behind them",
+        "a person small and distant in a large landscape barely visible",
+        "tiny silhouette of a person far away in mountains or nature",
+        "person seen from very far away small figure in wide landscape",
+        "distant hiker small dot in vast mountain scenery",
     ],
     "krajina":          [
         "a dramatic mountain landscape with absolutely no people present anywhere",
@@ -148,14 +153,10 @@ CAT_PROMPTS = {
     ],
 }
 
-# Minimalni CLIP skore rozdilu pro portret_vzdaleny vs scena
-# Pokud rozdil mezi portret_vzdaleny a scena < tento prah,
-# preferujeme scenu (clovek je moc maly)
+# portret_vzdaleny vs scena: pokud rozdil maly -> scena (postava je moc mala)
 PORTRET_V_MARGIN = 0.003
 
-# Minimalni rozdil portret_vzdaleny vs portret_blizky pro povyseni na blizky
-# Pokud portret_blizky skoro vyrovnava portret_vzdaleny (< tento prah),
-# klasifikujeme jako portret_blizky
+# portret_stredni vs portret_blizky: pokud blizky skoro vyrovnava stredni -> povys na blizky
 PORTRET_B_MARGIN = 0.002
 
 # Pokud krajina vyhraje, ale nejlepsi portret je v tomto dosahu od krajiny,
@@ -761,29 +762,35 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         else:
             phash_list.append(None)
 
-        # Kategorie – s korekcí pro portret_vzdaleny vs scena
+        # Kategorie
         category = max(cat_s, key=cat_s.get)
 
         # krajina nesmí vyhrát pokud je portrét v dosahu – lide v popredi
         if category == "krajina":
-            best_portrait = max(cat_s.get("portret_blizky", 0), cat_s.get("portret_vzdaleny", 0))
+            best_portrait = max(
+                cat_s.get("portret_blizky", 0),
+                cat_s.get("portret_stredni", 0),
+                cat_s.get("portret_vzdaleny", 0),
+            )
             if cat_s["krajina"] - best_portrait < KRAJINA_PORTRAIT_MARGIN:
-                if cat_s.get("portret_blizky", 0) >= cat_s.get("portret_vzdaleny", 0):
-                    category = "portret_blizky"
-                else:
-                    category = "portret_vzdaleny"
+                # vyber nejlepsi portretovou kategorii
+                category = max(
+                    ["portret_blizky", "portret_stredni", "portret_vzdaleny"],
+                    key=lambda k: cat_s.get(k, 0)
+                )
 
-        # portret_vzdaleny vs scena: pokud rozdil maly -> degraduj na scena
+        # portret_vzdaleny vs scena: pokud rozdil maly -> scena (postava moc mala)
         if category == "portret_vzdaleny":
             if cat_s["portret_vzdaleny"] - cat_s.get("scena", 0) < PORTRET_V_MARGIN:
                 category = "scena"
 
-        # portret_vzdaleny vs portret_blizky: pokud blizky skoro vyrovnava -> povys na blizky
-        if category == "portret_vzdaleny":
-            if cat_s["portret_vzdaleny"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
+        # portret_stredni vs portret_blizky: pokud blizky skoro vyrovnava -> povys na blizky
+        if category == "portret_stredni":
+            if cat_s["portret_stredni"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
                 category = "portret_blizky"
 
-        is_portrait = category == "portret_blizky"  # analýza obličeje jen pro blízké portréty
+        # face analyza: blizky a stredni (oblicej jasne viditelny), ne vzdaleny
+        is_portrait = category in ("portret_blizky", "portret_stredni")
 
         # Ostrost (DOF-aware)
         _step_t = time.time()
