@@ -63,6 +63,7 @@ def _load_jobs():
 def startup():
     init_db()
     _load_jobs()
+    _persist_jobs()  # zapiš opravené stavy (mrtvé "running" -> "error") zpět na disk
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
