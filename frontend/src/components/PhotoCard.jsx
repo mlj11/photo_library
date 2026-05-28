@@ -37,8 +37,9 @@ function Badge({ type, children }) {
     dof:   'bg-purple-500/15 text-purple-400',
     sharp: 'bg-good/12 text-good',
     blur:  'bg-bad/12 text-bad',
-    smile: 'bg-good/15 text-green-400 font-semibold',
-    bad:   'bg-bad/12 text-bad',
+    smile:      'bg-good/15 text-green-400 font-semibold',
+    prekvapeni: 'bg-yellow-500/15 text-yellow-400 font-semibold',
+    bad:        'bg-bad/12 text-bad',
   }
   return (
     <span className={`text-[0.58rem] px-1 py-0.5 rounded ${styles[type] || 'text-muted'}`}>
@@ -133,6 +134,7 @@ export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, o
           {photo.sharp_center > 200 && <Badge type="sharp">sharp</Badge>}
           {photo.sharp_center < 80 && <Badge type="blur">blur</Badge>}
           {photo.emotion === 'smile' && <Badge type="smile">smile</Badge>}
+          {photo.emotion === 'prekvapeni' && <Badge type="prekvapeni">wow</Badge>}
           {photo.emotion === 'bad' && <Badge type="bad">bad-face</Badge>}
         </div>
 

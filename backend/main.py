@@ -360,6 +360,7 @@ def list_photos(
             "blur":     "p.sharp_center < 80",
             "sharp":    "p.sharp_center > 200",
             "smile":    "p.emotion = 'smile'",
+            "wow":      "p.emotion = 'prekvapeni'",
             "bad_face": "p.emotion = 'bad'",
             "selected": "p.selected = 1",
         }

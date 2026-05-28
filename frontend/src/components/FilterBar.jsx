@@ -31,6 +31,7 @@ const SPECIALS = [
   { k: 'blur', label: 'Rozmazané' },
   { k: 'sharp', label: 'Ostré' },
   { k: 'smile', label: 'Úsměv' },
+  { k: 'wow', label: 'Překvapení' },
   { k: 'bad_face', label: 'Špatný výraz' },
   { k: 'top25', label: 'Top 25%' },
   { k: 'bot25', label: 'Spodních 25%' },

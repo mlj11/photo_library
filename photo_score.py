@@ -169,16 +169,19 @@ KRAJINA_PORTRAIT_MARGIN = 0.008
 
 # CLIP prompty – vyraz obliceje (spolehlivejsi nez DeepFace pro outdoor)
 FACE_PROMPTS = {
-    "smile":   ["a person smiling happily with a visible smile",
-                "a happy smiling face with teeth showing",
-                "joyful laughing expression big smile"],
-    "neutral": ["a child or person looking directly at the camera with a calm serious expression",
-                "person with neutral composed face eyes open looking at camera",
-                "serious focused expression looking straight into the lens eyes open",
-                "calm natural outdoor portrait eyes fully open looking at camera"],
-    "bad":     ["a person with both eyes completely shut closed not open",
-                "clearly blinking eyes fully closed mid-blink",
-                "eyes squeezed tightly shut grimacing in pain"],
+    "smile":      ["a person smiling happily with a visible smile",
+                   "a happy smiling face with teeth showing",
+                   "joyful laughing expression big smile"],
+    "prekvapeni": ["children with mouth wide open in amazement surprise excited reaction",
+                   "person with open mouth wide eyes surprised delighted wow expression",
+                   "amazed excited child mouth open in wonder looking at something"],
+    "neutral":    ["a child or person looking directly at the camera with a calm serious expression",
+                   "person with neutral composed face eyes open looking at camera",
+                   "serious focused expression looking straight into the lens eyes open",
+                   "calm natural outdoor portrait eyes fully open looking at camera"],
+    "bad":        ["a person with both eyes completely shut closed not open",
+                   "clearly blinking eyes fully closed mid-blink",
+                   "eyes squeezed tightly shut grimacing in pain"],
 }
 
 # ── Pomocne funkce ────────────────────────────────────────────────────────────
@@ -519,14 +522,17 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
         feat = feat / feat.norm(dim=-1, keepdim=True)
         scores = {k: (feat @ tf.T).mean().item() for k, tf in tf_face.items()}
 
-    best     = max(scores, key=scores.get)
-    smile_s  = scores["smile"]
-    bad_s    = scores["bad"]
-    gap      = smile_s - bad_s
+    smile_s = scores["smile"]
+    bad_s   = scores["bad"]
+    wow_s   = scores["prekvapeni"]
+    gap     = smile_s - bad_s
 
     if gap > 0.005:
         emotion = "smile"
         fscore  = min(gap * 30, 1.0)
+    elif wow_s > smile_s + 0.004 and wow_s > bad_s + 0.006:
+        emotion = "prekvapeni"
+        fscore  = min((wow_s - smile_s) * 20, 0.6)
     elif bad_s > smile_s + 0.012:
         emotion = "bad"
         fscore  = -min((bad_s - smile_s) * 30, 0.8)
