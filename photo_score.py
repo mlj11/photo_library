@@ -143,10 +143,10 @@ CAT_PROMPTS = {
         "close up texture nature photography",
     ],
     "akce":             [
-        "people actively climbing scrambling moving in mountains not posed",
-        "action shot person hiking walking in motion blur candid not standing still",
-        "dynamic outdoor photo people in movement not posing",
-        "person caught in motion running jumping climbing rocks",
+        "the main subject of the photo is actively climbing scrambling moving not sitting still",
+        "primary person in foreground caught in motion walking running jumping not posed",
+        "action shot where the closest subject is moving dynamically not resting",
+        "main foreground person in dynamic motion climbing hiking not posing for camera",
     ],
     "scena":            [
         "a wide landscape scene with tiny distant people or objects",
