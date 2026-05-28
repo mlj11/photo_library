@@ -13,17 +13,24 @@ DEFAULTS = {
     "dof_peak_min":     120,
     "dof_ratio":        2.5,
     "blur_penalty_thr": 40,
+    "skip_files":       [],
 }
 
 def load() -> dict:
     if _FILE.exists():
         try:
-            return {**DEFAULTS, **json.loads(_FILE.read_text(encoding="utf-8"))}
+            saved = json.loads(_FILE.read_text(encoding="utf-8"))
+            cfg = {**DEFAULTS, **saved}
+            if not isinstance(cfg.get("skip_files"), list):
+                cfg["skip_files"] = []
+            return cfg
         except Exception:
             pass
     return dict(DEFAULTS)
 
 def save(data: dict) -> dict:
     cfg = {k: data.get(k, v) for k, v in DEFAULTS.items()}
+    if not isinstance(cfg.get("skip_files"), list):
+        cfg["skip_files"] = []
     _FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
     return cfg

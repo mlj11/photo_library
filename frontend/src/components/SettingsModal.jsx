@@ -61,6 +61,15 @@ const FIELDS = [
     ],
   },
   {
+    group: 'Přeskočit soubory',
+    items: [
+      {
+        key: 'skip_files', label: 'Přeskočit soubory', type: 'textarea',
+        desc: 'Názvy souborů k přeskočení (jeden na řádek). Např. soubory které způsobují crash rawpy.',
+      },
+    ],
+  },
+  {
     group: 'Náhledy',
     items: [
       {
@@ -138,9 +147,11 @@ export default function SettingsModal({ onClose }) {
                   <div key={f.key}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-txt text-xs">{f.label}</span>
-                      <span className="text-accent text-xs font-bold font-mono">
-                        {f.fmt ? f.fmt(config[f.key]) : config[f.key]}
-                      </span>
+                      {f.type !== 'textarea' && (
+                        <span className="text-accent text-xs font-bold font-mono">
+                          {f.fmt ? f.fmt(config[f.key]) : config[f.key]}
+                        </span>
+                      )}
                     </div>
 
                     {f.type === 'range' && (
@@ -162,6 +173,16 @@ export default function SettingsModal({ onClose }) {
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
+                    )}
+
+                    {f.type === 'textarea' && (
+                      <textarea
+                        rows={4}
+                        value={(config[f.key] || []).join('\n')}
+                        onChange={e => set(f.key, e.target.value.split('\n').map(s => s.trim()).filter(Boolean))}
+                        placeholder="S3_06811.ARW"
+                        className="w-full bg-bg border border-border rounded px-2 py-1.5 text-xs text-txt font-mono focus:border-accent outline-none resize-none"
+                      />
                     )}
 
                     <p className="text-muted text-[0.6rem] mt-1">{f.desc}</p>
