@@ -123,8 +123,9 @@ CAT_PROMPTS = {
         "a person standing still posed taking up most of the photo face clearly visible",
         "full body posed portrait person dominates the frame not moving face recognizable",
         "child or person standing still large in the frame posing for photo",
-        "two people sitting still posed on rocks face visible not moving",
-        "posed portrait of people in foreground large in frame not in motion",
+        "two or three people posing together for a photo faces visible standing still",
+        "group of children posing for a photo outdoors faces clearly visible",
+        "posed portrait of people in foreground large in frame other people walking behind",
     ],
     "portret_vzdaleny": [
         "a person small and distant in a large landscape barely visible",
