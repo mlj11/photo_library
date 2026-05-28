@@ -24,6 +24,7 @@ def init_db(db_path: Path = None) -> None:
     # Migrate: add columns added after initial schema creation
     for col_sql in [
         "ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN phash TEXT DEFAULT NULL",
     ]:
         try:
             conn.execute(col_sql)

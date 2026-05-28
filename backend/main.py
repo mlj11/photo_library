@@ -448,6 +448,11 @@ def update_photo(photo_id: int, req: PhotoUpdate):
 def regroup_session(session_id: int):
     import numpy as np
     from collections import defaultdict
+    try:
+        import imagehash as _imagehash
+        _HAS_IMAGEHASH = True
+    except ImportError:
+        _HAS_IMAGEHASH = False
 
     cfg = _cfg.load()
     threshold = float(cfg["dedup_threshold"])
@@ -455,7 +460,7 @@ def regroup_session(session_id: int):
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT id, score, embedding FROM photos WHERE session_id=? ORDER BY id",
+            "SELECT id, score, embedding, phash FROM photos WHERE session_id=? ORDER BY id",
             (session_id,)).fetchall()
         if not rows:
             raise HTTPException(404, "Session not found or empty")
@@ -498,10 +503,22 @@ def regroup_session(session_id: int):
             if px != py:
                 parent[px] = py
 
+        raw_phash = [r["phash"] for r in rows]
+        phash_thr = float(cfg.get("phash_threshold", 0.83))
+        has_phash = any(p for p in raw_phash)
+
         for i in range(n):
             for j in range(i + 1, n):
-                if sim[i, j] >= threshold:
-                    union(i, j)
+                if sim[i, j] < threshold:
+                    continue
+                if has_phash and _HAS_IMAGEHASH:
+                    pi, pj = raw_phash[v_idx[i]], raw_phash[v_idx[j]]
+                    if pi and pj:
+                        hi = _imagehash.hex_to_hash(pi)
+                        hj = _imagehash.hex_to_hash(pj)
+                        if 1.0 - (hi - hj) / 256.0 < phash_thr:
+                            continue
+                union(i, j)
 
         root_members = defaultdict(list)
         for i in range(n):

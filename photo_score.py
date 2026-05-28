@@ -556,7 +556,6 @@ def find_dedup_groups(embeddings: list, phashes: list, threshold: float,
     # Vsechny pairwise CLIP similarity najednou (matice n×n) – rychle pro velke serie
     sim_matrix = emb_arr @ emb_arr.T
 
-    # Union-Find – umoznuje tranzitivni skupiny
     parent = list(range(n))
 
     def find(x):
@@ -607,7 +606,10 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = _sqlite3.connect(str(db_path))
     conn.executescript(SCHEMA_SQL)
-    for _migration in ["ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL"]:
+    for _migration in [
+        "ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN phash TEXT DEFAULT NULL",
+    ]:
         try:
             conn.execute(_migration); conn.commit()
         except _sqlite3.OperationalError:
@@ -620,20 +622,21 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
     session_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     for r in results:
         emb_blob = r["embedding"].tobytes() if r.get("embedding") is not None else None
+        phash_str = str(r["phash"]) if r.get("phash") is not None else None
         conn.execute("""
             INSERT INTO photos (
                 session_id, name, path, thumb,
                 score, clip_score, sharp_center, sharp_edges, sharp_total,
                 dof, comp_score, category, emotion, face_score,
-                group_id, best_in_group, created_at, embedding
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                group_id, best_in_group, created_at, embedding, phash
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             session_id, r["name"], r["path"], r["thumb"],
             r["score"], r["clip"], r["sharp_c"], r["sharp_e"], r["sharp_t"],
             1 if r["dof"] else 0, r["comp"], r["category"],
             r["emotion"], r["face_score"],
             r["group"], 1 if r["best_in_group"] else 0,
-            _dt.now().isoformat(), emb_blob
+            _dt.now().isoformat(), emb_blob, phash_str
         ))
     conn.commit()
     conn.close()
@@ -804,7 +807,8 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "face_score":face["face_score"],
             "group":     -1,
             "best_in_group": False,
-            "embedding": emb,  # numpy float32 – ulozeno do DB jako BLOB
+            "embedding": emb,
+            "phash":     phash_list[-1] if phash_list else None,
         })
 
         del img
