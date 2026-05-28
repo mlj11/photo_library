@@ -132,7 +132,7 @@ export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, o
           {photo.group_id >= 0 && !photo.best_in_group && <Badge type="grp">gr.{photo.group_id}</Badge>}
           {photo.dof && <Badge type="dof">BOKEH</Badge>}
           {photo.sharp_center > 200 && <Badge type="sharp">sharp</Badge>}
-          {photo.sharp_center < 80 && <Badge type="blur">blur</Badge>}
+          {photo.sharp_center < 80 && !photo.dof && <Badge type="blur">blur</Badge>}
           {photo.emotion === 'smile' && <Badge type="smile">smile</Badge>}
           {photo.emotion === 'wow' && <Badge type="wow">překvapení</Badge>}
           {photo.emotion === 'bad' && <Badge type="bad">bad-face</Badge>}
