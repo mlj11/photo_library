@@ -15,12 +15,13 @@ function Btn({ active, onClick, children }) {
 
 const CATS = [
   { k: 'all', label: 'Vše' },
-  { k: 'portret_blizky', label: 'Portret-B' },
-  { k: 'portret_vzdaleny', label: 'Portret-V' },
+  { k: 'portret_blizky',  label: 'Portrét B' },
+  { k: 'portret_stredni', label: 'Portrét S' },
+  { k: 'portret_vzdaleny',label: 'Portrét V' },
   { k: 'krajina', label: 'Krajina' },
-  { k: 'detail', label: 'Detail' },
-  { k: 'akce', label: 'Akce' },
-  { k: 'scena', label: 'Scena' },
+  { k: 'detail',  label: 'Detail' },
+  { k: 'akce',    label: 'Akce' },
+  { k: 'scena',   label: 'Scéna' },
 ]
 
 const SPECIALS = [

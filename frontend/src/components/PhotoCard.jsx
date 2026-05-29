@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
 const CAT_LABEL = {
-  portret_blizky: 'portret-B',
-  portret_vzdaleny: 'portret-V',
-  krajina: 'krajina',
-  detail: 'detail',
-  akce: 'akce',
-  scena: 'scena',
+  portret_blizky:  'Portrét B',
+  portret_stredni: 'Portrét S',
+  portret_vzdaleny:'Portrét V',
+  krajina: 'Krajina',
+  detail:  'Detail',
+  akce:    'Akce',
+  scena:   'Scéna',
 }
 
 function StarRating({ value, onChange }) {
@@ -130,12 +131,12 @@ export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, o
           <Badge type="cat">{CAT_LABEL[displayCat] || displayCat}</Badge>
           {photo.group_id >= 0 && photo.best_in_group && <Badge type="best">★ gr.{photo.group_id}</Badge>}
           {photo.group_id >= 0 && !photo.best_in_group && <Badge type="grp">gr.{photo.group_id}</Badge>}
-          {photo.dof && <Badge type="dof">BOKEH</Badge>}
-          {photo.sharp_center > 200 && <Badge type="sharp">sharp</Badge>}
-          {photo.sharp_center < 60 && photo.sharp_total < 60 && !photo.dof && <Badge type="blur">blur</Badge>}
-          {photo.emotion === 'smile' && <Badge type="smile">smile</Badge>}
+          {photo.dof && <Badge type="dof">bokeh</Badge>}
+          {photo.sharp_center > 200 && <Badge type="sharp">ostrá</Badge>}
+          {photo.sharp_center < 60 && photo.sharp_total < 60 && !photo.dof && <Badge type="blur">rozm.</Badge>}
+          {photo.emotion === 'smile' && <Badge type="smile">úsměv</Badge>}
           {photo.emotion === 'wow' && <Badge type="wow">překvapení</Badge>}
-          {photo.emotion === 'bad' && <Badge type="bad">bad-face</Badge>}
+          {photo.emotion === 'bad' && <Badge type="bad">šp.výraz</Badge>}
         </div>
 
         {/* Star rating */}
