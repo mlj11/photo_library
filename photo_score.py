@@ -499,6 +499,20 @@ def analyze_sharpness(img: Image.Image,
         "score":        round(float(score), 4),
     }
 
+# ── Expozice ──────────────────────────────────────────────────────────────────
+def exposure_score(img: Image.Image) -> float:
+    """Penalizace za velke podexponovane nebo preexponovane oblasti."""
+    arr = np.array(img.convert("L"), dtype=np.float32) / 255.0
+    dark_ratio   = float((arr < 0.06).mean())   # temer cerne pixely
+    bright_ratio = float((arr > 0.97).mean())   # temer bile (prepal)
+    penalty = 0.0
+    if dark_ratio > 0.20:                        # >20% snimku v hlubokem stinu
+        penalty -= min((dark_ratio - 0.20) * 0.6, 0.12)
+    if bright_ratio > 0.05:                      # >5% prepaly
+        penalty -= min((bright_ratio - 0.05) * 0.6, 0.08)
+    return penalty
+
+
 # ── Kompozice ─────────────────────────────────────────────────────────────────
 def composition_score(img: Image.Image) -> float:
     arr  = np.array(img.convert("RGB"), dtype=np.float32) / 255.0
@@ -835,6 +849,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Kompozice
         comp = round(composition_score(img), 3)
 
+        # Expozice – penalizace za hluboky stin / prepaly
+        exp_pen = round(exposure_score(img), 4)
+
         # Vyraz obliceje + pohled (CLIP-based, jen pro portréty)
         face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0,
                 "gaze": "", "gaze_score": 0.0}
@@ -842,7 +859,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             face = analyze_face_clip(img, model, preprocess, tf_face, tf_gaze, device)
 
         # Celkove skore
-        total = clip_s + sharp["score"] + comp * 0.2
+        total = clip_s + sharp["score"] + comp * 0.2 + exp_pen
         if is_portrait and face["emotion"]:
             # Smile/bad bonus plne plati jen kdyz se osoba diva do kamery;
             # usmev pri pohledu pryc ma mensi hodnotu nez neutral s primy pohledem
