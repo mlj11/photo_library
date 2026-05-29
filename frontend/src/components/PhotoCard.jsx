@@ -41,6 +41,7 @@ function Badge({ type, children }) {
     smile:      'bg-good/15 text-green-400 font-semibold',
     wow:        'bg-yellow-500/15 text-yellow-400 font-semibold',
     bad:        'bg-bad/12 text-bad',
+    gaze_away:  'bg-orange-500/12 text-orange-400',
   }
   return (
     <span className={`text-[0.58rem] px-1 py-0.5 rounded ${styles[type] || 'text-muted'}`}>
@@ -137,6 +138,7 @@ export default function PhotoCard({ photo, scoreMin, scoreMax, onToggleSelect, o
           {photo.emotion === 'smile' && <Badge type="smile">úsměv</Badge>}
           {photo.emotion === 'wow' && <Badge type="wow">překvapení</Badge>}
           {photo.emotion === 'bad' && <Badge type="bad">šp.výraz</Badge>}
+          {photo.gaze === 'away' && <Badge type="gaze_away">bokem</Badge>}
         </div>
 
         {/* Star rating */}

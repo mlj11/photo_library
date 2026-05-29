@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 const CAT_LABEL = {
-  portret_blizky: 'portret-B', portret_vzdaleny: 'portret-V',
-  krajina: 'krajina', detail: 'detail', akce: 'akce', scena: 'scena',
+  portret_blizky:  'Portrét B',
+  portret_stredni: 'Portrét S',
+  portret_vzdaleny:'Portrét V',
+  krajina: 'Krajina', detail: 'Detail', akce: 'Akce', scena: 'Scéna',
 }
 
 function previewUrl(photo) {
@@ -50,7 +52,16 @@ export default function Lightbox({ photos, index, onClose, onNavigate, onOpenFil
         <span className="text-txt font-mono text-xs truncate max-w-xs">{photo.name}</span>
         <span className="text-accent font-bold text-xs">{photo.score?.toFixed(4)}</span>
         <span className="text-accent2 text-[0.6rem] px-1.5 py-0.5 border border-accent2/30 rounded">{cat}</span>
-        {photo.dof && <span className="text-purple-400 text-[0.6rem]">BOKEH</span>}
+        {photo.dof && <span className="text-purple-400 text-[0.6rem]">bokeh</span>}
+        {photo.group_id >= 0 && photo.best_in_group && (
+          <span className="text-accent text-[0.6rem] font-bold">★ nejlepší gr.{photo.group_id}</span>
+        )}
+        {photo.group_id >= 0 && !photo.best_in_group && (
+          <span className="text-muted text-[0.6rem]">gr.{photo.group_id}</span>
+        )}
+        {photo.gaze === 'away' && (
+          <span className="text-orange-400 text-[0.6rem]">pohled bokem</span>
+        )}
         <span className="text-muted text-[0.6rem] ml-1">{index + 1} / {photos.length}</span>
         <div className="ml-auto flex items-center gap-2">
           <button

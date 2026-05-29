@@ -185,6 +185,20 @@ FACE_PROMPTS = {
                    "eyes squeezed tightly shut grimacing in pain"],
 }
 
+# CLIP prompty – pohled do kamery vs. od kamery
+GAZE_PROMPTS = {
+    "at_camera": [
+        "person looking directly into the camera lens making eye contact",
+        "portrait subject facing camera direct gaze eyes toward lens",
+        "person's face turned toward camera looking straight at photographer",
+    ],
+    "away": [
+        "person looking away from camera sideways or downward not at lens",
+        "subject in motion walking with gaze directed away from camera",
+        "person with eyes directed to the side or down not toward camera",
+    ],
+}
+
 # ── Pomocne funkce ────────────────────────────────────────────────────────────
 def get_device():
     if torch.cuda.is_available():
@@ -510,16 +524,18 @@ def composition_score(img: Image.Image) -> float:
 
 # ── CLIP-based vyraz obliceje ─────────────────────────────────────────────────
 def analyze_face_clip(img: Image.Image, model, preprocess,
-                      tf_face: dict, device) -> dict:
+                      tf_face: dict, tf_gaze: dict, device) -> dict:
     """
-    Pouziva CLIP pro detekci vyrazu – spolehlivejsi nez DeepFace pro outdoor portréty.
+    Pouziva CLIP pro detekci vyrazu a pohledu – spolehlivejsi nez DeepFace pro outdoor portréty.
     Detekuje: smile / neutral / bad (zavrene oci, spatny vyraz)
+    Pohled:   at_camera / away / unknown
     """
     img_t = preprocess(img).unsqueeze(0).to(device)
     with torch.no_grad():
         feat = model.encode_image(img_t)
         feat = feat / feat.norm(dim=-1, keepdim=True)
-        scores = {k: (feat @ tf.T).mean().item() for k, tf in tf_face.items()}
+        scores      = {k: (feat @ tf.T).mean().item() for k, tf in tf_face.items()}
+        gaze_scores = {k: (feat @ tf.T).mean().item() for k, tf in tf_gaze.items()}
 
     smile_s = scores["smile"]
     bad_s   = scores["bad"]
@@ -539,11 +555,25 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
         emotion = "neutral"
         fscore  = 0.1
 
+    # Pohled do kamery – bonus za přímý pohled, malá penalizace za odvrácení
+    gaze_gap = gaze_scores["at_camera"] - gaze_scores["away"]
+    if gaze_gap > 0.003:
+        gaze       = "at_camera"
+        gaze_score = min(gaze_gap * 25, 0.8)
+    elif gaze_gap < -0.003:
+        gaze       = "away"
+        gaze_score = max(gaze_gap * 15, -0.4)
+    else:
+        gaze       = "unknown"
+        gaze_score = 0.0
+
     return {
-        "emotion": emotion,
+        "emotion":    emotion,
         "face_score": round(float(fscore), 4),
         "smile_sim":  round(float(smile_s), 4),
         "bad_sim":    round(float(bad_s), 4),
+        "gaze":       gaze,
+        "gaze_score": round(float(gaze_score), 4),
     }
 
 # ── Deduplikacni skupiny (CLIP + pHash) ──────────────────────────────────────
@@ -633,6 +663,7 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
     for _migration in [
         "ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL",
         "ALTER TABLE photos ADD COLUMN phash TEXT DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN gaze TEXT DEFAULT ''",
     ]:
         try:
             conn.execute(_migration); conn.commit()
@@ -652,15 +683,15 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
                 session_id, name, path, thumb,
                 score, clip_score, sharp_center, sharp_edges, sharp_total,
                 dof, comp_score, category, emotion, face_score,
-                group_id, best_in_group, created_at, embedding, phash
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                group_id, best_in_group, created_at, embedding, phash, gaze
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             session_id, r["name"], r["path"], r["thumb"],
             r["score"], r["clip"], r["sharp_c"], r["sharp_e"], r["sharp_t"],
             1 if r["dof"] else 0, r["comp"], r["category"],
             r["emotion"], r["face_score"],
             r["group"], 1 if r["best_in_group"] else 0,
-            _dt.now().isoformat(), emb_blob, phash_str
+            _dt.now().isoformat(), emb_blob, phash_str, r.get("gaze", "")
         ))
     conn.commit()
     conn.close()
@@ -721,6 +752,10 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         for k, prompts in FACE_PROMPTS.items():
             t = model.encode_text(clip.tokenize(prompts).to(device))
             tf_face[k] = t / t.norm(dim=-1, keepdim=True)
+        tf_gaze = {}
+        for k, prompts in GAZE_PROMPTS.items():
+            t = model.encode_text(clip.tokenize(prompts).to(device))
+            tf_gaze[k] = t / t.norm(dim=-1, keepdim=True)
 
     print(f"\n[SCAN] Hodnotim {len(photos)} fotek...\n")
     print(f"PHASE:scanning:{len(photos)}", flush=True)
@@ -797,15 +832,17 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Kompozice
         comp = round(composition_score(img), 3)
 
-        # Vyraz obliceje (CLIP-based, jen pro portréty)
-        face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0}
+        # Vyraz obliceje + pohled (CLIP-based, jen pro portréty)
+        face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0,
+                "gaze": "", "gaze_score": 0.0}
         if is_portrait:
-            face = analyze_face_clip(img, model, preprocess, tf_face, device)
+            face = analyze_face_clip(img, model, preprocess, tf_face, tf_gaze, device)
 
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
         if is_portrait and face["emotion"]:
             total += face["face_score"] * 0.3
+            total += face["gaze_score"] * 0.2  # bonus za pohled do kamery
 
         # Thumbnail
         tname = f"{photo_path.stem}.jpg"
@@ -825,6 +862,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "category":  category,
             "emotion":   face["emotion"],
             "face_score":face["face_score"],
+            "gaze":      face["gaze"],
             "group":     -1,
             "best_in_group": False,
             "embedding": emb,

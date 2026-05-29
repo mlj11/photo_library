@@ -399,7 +399,7 @@ def list_photos(
         order_dir = "DESC" if order == "desc" else "ASC"
         where = " AND ".join(conditions)
 
-        cols = "p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at"
+        cols = "p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze"
         if sort == "group":
             # Unique photos (group_id = -1) always at the end;
             # groups ordered ASC/DESC; within each group best score first.
@@ -438,7 +438,7 @@ def update_photo(photo_id: int, req: PhotoUpdate):
         conn.commit()
 
         row = conn.execute("""
-            SELECT p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at, s.thumb_dir FROM photos p
+            SELECT p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze, s.thumb_dir FROM photos p
             JOIN sessions s ON p.session_id = s.id
             WHERE p.id=?
         """, (photo_id,)).fetchone()
