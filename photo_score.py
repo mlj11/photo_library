@@ -945,28 +945,32 @@ def generate_dashboard(results_display, results_all, html_path: Path, input_dir:
                 grp_badge = f'<span class="badge grp">gr.{r["group"]}</span>'
 
         # DOF badge
-        dof_badge = '<span class="badge dof">BOKEh</span>' if r["dof"] else ""
+        dof_badge = '<span class="badge dof">bokeh</span>' if r["dof"] else ""
 
         # Ostrost badge
         if r["sharp_c"] < 50:
-            sharp_badge = f'<span class="badge bad">blur:{r["sharp_c"]:.0f}</span>'
+            sharp_badge = f'<span class="badge bad">rozm:{r["sharp_c"]:.0f}</span>'
         elif r["sharp_c"] > 300:
-            sharp_badge = f'<span class="badge good">sharp:{r["sharp_c"]:.0f}</span>'
+            sharp_badge = f'<span class="badge good">ostrá:{r["sharp_c"]:.0f}</span>'
         else:
             sharp_badge = ""
 
         # Vyraz
         face_badge = ""
         if r["emotion"] == "smile":
-            face_badge = '<span class="badge smile">smile</span>'
+            face_badge = '<span class="badge smile">úsměv</span>'
         elif r["emotion"] == "bad":
-            face_badge = '<span class="badge bad">bad-face</span>'
+            face_badge = '<span class="badge bad">šp.výraz</span>'
 
         # Kategorie
         cat_short = {
-            "portret_blizky":"portret-B","portret_vzdaleny":"portret-V",
-            "krajina":"krajina","detail":"detail","akce":"akce",
-            "scena":"scena"
+            "portret_blizky":  "Portrét B",
+            "portret_stredni": "Portrét S",
+            "portret_vzdaleny":"Portrét V",
+            "krajina":         "Krajina",
+            "detail":          "Detail",
+            "akce":            "Akce",
+            "scena":           "Scéna",
         }.get(r["category"], r["category"])
         cat_badge = f'<span class="badge cat">{cat_short}</span>'
 
@@ -1019,8 +1023,13 @@ def generate_dashboard(results_display, results_all, html_path: Path, input_dir:
         </div>'''
 
     # Statistiky kategorii
+    _cat_labels = {
+        "portret_blizky": "Portrét B", "portret_stredni": "Portrét S",
+        "portret_vzdaleny": "Portrét V", "krajina": "Krajina",
+        "detail": "Detail", "akce": "Akce", "scena": "Scéna",
+    }
     cat_stats = " &nbsp;|&nbsp; ".join(
-        f"{k.replace('portret_','P-').replace('krajina','KR').replace('detail','DT').replace('akce','AK')}: {v}"
+        f"{_cat_labels.get(k, k)}: {v}"
         for k, v in sorted(cats.items(), key=lambda x: -x[1])
     )
 
@@ -1182,13 +1191,14 @@ canvas{{width:100%;height:32px}}
 
   <div class="ctrl-row">
     <span class="ctrl-label">Kategorie:</span>
-    <button class="btn active" onclick="filterCat('all')">Vse</button>
-    <button class="btn" onclick="filterCat('portret_blizky')">Portret-B</button>
-    <button class="btn" onclick="filterCat('portret_vzdaleny')">Portret-V</button>
+    <button class="btn active" onclick="filterCat('all')">Vše</button>
+    <button class="btn" onclick="filterCat('portret_blizky')">Portrét B</button>
+    <button class="btn" onclick="filterCat('portret_stredni')">Portrét S</button>
+    <button class="btn" onclick="filterCat('portret_vzdaleny')">Portrét V</button>
     <button class="btn" onclick="filterCat('krajina')">Krajina</button>
     <button class="btn" onclick="filterCat('detail')">Detail</button>
     <button class="btn" onclick="filterCat('akce')">Akce</button>
-    <button class="btn" onclick="filterCat('scena')">Scena</button>
+    <button class="btn" onclick="filterCat('scena')">Scéna</button>
   </div>
 
   <div class="ctrl-row">
