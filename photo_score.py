@@ -844,7 +844,10 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
         if is_portrait and face["emotion"]:
-            total += face["face_score"] * 0.4  # zvysena vaha: bad penalizuje vic
+            # Smile/bad bonus plne plati jen kdyz se osoba diva do kamery;
+            # usmev pri pohledu pryc ma mensi hodnotu nez neutral s primy pohledem
+            gaze_factor = 0.4 if face["gaze"] != "away" else 0.15
+            total += face["face_score"] * gaze_factor
             total += face["gaze_score"] * 0.2  # bonus za pohled do kamery
 
         # Thumbnail
