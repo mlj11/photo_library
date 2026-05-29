@@ -840,8 +840,8 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             if cat_s["portret_stredni"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
                 category = "portret_blizky"
 
-        # face analyza: blizky a stredni (oblicej jasne viditelny), ne vzdaleny
-        is_portrait = category in ("portret_blizky", "portret_stredni")
+        # face analyza: blizky, stredni i vzdaleny – gaze detekce funguje i pro mensi obliceje
+        is_portrait = category in ("portret_blizky", "portret_stredni", "portret_vzdaleny")
 
         # Ostrost (DOF-aware)
         sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
