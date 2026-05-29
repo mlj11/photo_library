@@ -849,7 +849,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "group":     -1,
             "best_in_group": False,
             "embedding": emb,
-            "phash":     phash_list[-1] if phash_list else None,
+            "phash":     str(phash_list[-1]) if phash_list and phash_list[-1] is not None else None,
         })
 
         del img
