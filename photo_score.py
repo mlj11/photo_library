@@ -182,7 +182,10 @@ FACE_PROMPTS = {
                    "calm natural outdoor portrait eyes fully open looking at camera"],
     "bad":        ["a person with both eyes completely shut closed not open",
                    "clearly blinking eyes fully closed mid-blink",
-                   "eyes squeezed tightly shut grimacing in pain"],
+                   "eyes squeezed tightly shut grimacing in pain",
+                   "child with eyes half closed squinting looking downward not at camera",
+                   "person looking down with droopy or partially closed eyes unfocused gaze",
+                   "child with sleepy or squinting eyes not making eye contact looking away down"],
 }
 
 # CLIP prompty – pohled do kamery vs. od kamery
@@ -841,7 +844,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
         if is_portrait and face["emotion"]:
-            total += face["face_score"] * 0.3
+            total += face["face_score"] * 0.4  # zvysena vaha: bad penalizuje vic
             total += face["gaze_score"] * 0.2  # bonus za pohled do kamery
 
         # Thumbnail
