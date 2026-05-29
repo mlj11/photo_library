@@ -199,7 +199,6 @@ def _extract_jpeg_binary(path: Path) -> "Image.Image | None":
     """Najde největší embedded JPEG v binárním souboru (preview v RAW/ARW).
     Bezpečné – žádný nativní kód, jen skenování bytů."""
     try:
-        import io as _io
         data = path.read_bytes()
         best_size = 0
         best_data = None
@@ -404,8 +403,7 @@ def make_thumbnail(src: Path, dst: Path, size: int, img: "Image.Image | None" = 
                     try:
                         td = raw.extract_thumb()
                         if td.format == rawpy.ThumbFormat.JPEG:
-                            import io as _b
-                            img = Image.open(_b.BytesIO(td.data)).convert("RGB")
+                            img = Image.open(_io.BytesIO(td.data)).convert("RGB")
                         else: raise ValueError()
                     except Exception:
                         rgb = raw.postprocess(use_camera_wb=True, half_size=True,
@@ -731,22 +729,12 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     phash_list = []
     start      = time.time()
 
-    # DEBUG TRACE – odkomentovat při ladění hangu:
-    # _tlog = open(r"C:\photo-library\scan_trace.log", "w", buffering=1, encoding="utf-8")
-    # def _t(msg): _tlog.write(f"{time.time():.1f} {msg}\n")
-    def _t(msg): pass
-
     # tqdm musí zapisovat na os.devnull, NE na sys.stderr – stderr pipe se jinak zaplní
     # (backend čte stderr přes readline() čekající na \n, tqdm píše \r → deadlock po ~400 iteracích)
     for _i, photo_path in enumerate(tqdm(photos, unit="foto", file=open(os.devnull, 'w'))):
-        # _t(f"loop_top {_i+1} {photo_path.name}")
         print(f"PROGRESS:{_i+1}:{len(photos)}", flush=True)
-        # _t(f"after_PROGRESS {_i+1}")
         print(f"FILE:{photo_path.name}", flush=True)
-        # _t(f"after_FILE {photo_path.name}")
-        _step_t = time.time()
         img = load_image(photo_path)
-        # _t(f"load_image done {time.time()-_step_t:.2f}s img={'ok' if img else 'None'}")
         if img is None:
             continue
 
@@ -804,21 +792,15 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         is_portrait = category in ("portret_blizky", "portret_stredni")
 
         # Ostrost (DOF-aware)
-        _step_t = time.time()
         sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
-        # _t(f"sharp done {time.time()-_step_t:.2f}s")
 
         # Kompozice
-        _step_t = time.time()
         comp = round(composition_score(img), 3)
-        # _t(f"comp done {time.time()-_step_t:.2f}s")
 
         # Vyraz obliceje (CLIP-based, jen pro portréty)
         face = {"emotion": "", "face_score": 0.0, "smile_sim": 0.0, "bad_sim": 0.0}
         if is_portrait:
-            _step_t = time.time()
             face = analyze_face_clip(img, model, preprocess, tf_face, device)
-            # _t(f"face done {time.time()-_step_t:.2f}s")
 
         # Celkove skore
         total = clip_s + sharp["score"] + comp * 0.2
@@ -826,11 +808,8 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             total += face["face_score"] * 0.3
 
         # Thumbnail
-        _step_t = time.time()
         tname = f"{photo_path.stem}.jpg"
-        # _t(f"thumb start")
         make_thumbnail(photo_path, output_dir / "_thumbs" / tname, thumb_size, img=img)
-        # _t(f"thumb done {time.time()-_step_t:.2f}s")
 
         results.append({
             "name":      photo_path.name,
@@ -899,10 +878,11 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
     else:
         results_display = sorted(results, key=lambda r: r["name"])
 
-    # Generuj dashboard
-    html_path = output_dir / "dashboard.html"
-    generate_dashboard(results_display, results, html_path, input_dir)
-    print(f"[HTML] {html_path}")
+    # Generuj HTML dashboard jen pri standalone pouziti (bez DB = bez backendu)
+    if not db_path:
+        html_path = output_dir / "dashboard.html"
+        generate_dashboard(results_display, results, html_path, input_dir)
+        print(f"[HTML] {html_path}")
     print(f"[OK]   {len(results)} fotek ohodnoceno\n")
 
     if db_path:

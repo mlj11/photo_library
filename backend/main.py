@@ -83,20 +83,31 @@ def _photo_with_thumb_url(photo: dict, thumb_dir: str) -> dict:
     return photo
 
 
+_SESSION_WITH_COUNT_SQL = """
+    SELECT s.*, COUNT(CASE WHEN p.selected=1 THEN 1 END) AS selected_count
+    FROM sessions s
+    LEFT JOIN photos p ON p.session_id = s.id
+    {where}
+    GROUP BY s.id
+    ORDER BY s.scanned_at DESC
+"""
+
+def _get_sessions(conn, session_id: int = None):
+    if session_id is not None:
+        sql = _SESSION_WITH_COUNT_SQL.format(where="WHERE s.id = ?")
+        row = conn.execute(sql, (session_id,)).fetchone()
+        return _row_to_dict(row) if row else None
+    sql = _SESSION_WITH_COUNT_SQL.format(where="")
+    return [_row_to_dict(r) for r in conn.execute(sql).fetchall()]
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
 def list_sessions():
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT s.*, COUNT(CASE WHEN p.selected=1 THEN 1 END) AS selected_count
-            FROM sessions s
-            LEFT JOIN photos p ON p.session_id = s.id
-            GROUP BY s.id
-            ORDER BY s.scanned_at DESC
-        """).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return _get_sessions(conn)
     finally:
         conn.close()
 
@@ -228,31 +239,34 @@ def post_scan_config(body: dict):
 
 @app.get("/api/jobs")
 def list_jobs():
-    return _scan_jobs
+    with _jobs_lock:
+        return dict(_scan_jobs)
 
 
 @app.get("/api/jobs/{job_id}")
 def get_job_status(job_id: str):
-    if job_id not in _scan_jobs:
-        raise HTTPException(404, "Job not found")
-    return _scan_jobs[job_id]
+    with _jobs_lock:
+        if job_id not in _scan_jobs:
+            raise HTTPException(404, "Job not found")
+        return dict(_scan_jobs[job_id])
 
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str):
-    if job_id not in _scan_jobs:
-        raise HTTPException(404, "Job not found")
-    job = _scan_jobs[job_id]
-    if job.get("status") != "running":
-        raise HTTPException(400, "Job is not running")
-    proc = _scan_procs.get(job_id)
-    if proc:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-    job["status"] = "cancelled"
-    job["error"] = "Zrušeno uživatelem"
+    with _jobs_lock:
+        if job_id not in _scan_jobs:
+            raise HTTPException(404, "Job not found")
+        job = _scan_jobs[job_id]
+        if job.get("status") != "running":
+            raise HTTPException(400, "Job is not running")
+        proc = _scan_procs.get(job_id)
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        job["status"] = "cancelled"
+        job["error"] = "Zrušeno uživatelem"
     _persist_jobs()
     return {"ok": True}
 
@@ -261,16 +275,10 @@ def cancel_job(job_id: str):
 def get_session(session_id: int):
     conn = get_db()
     try:
-        row = conn.execute("""
-            SELECT s.*, COUNT(CASE WHEN p.selected=1 THEN 1 END) AS selected_count
-            FROM sessions s
-            LEFT JOIN photos p ON p.session_id = s.id
-            WHERE s.id = ?
-            GROUP BY s.id
-        """, (session_id,)).fetchone()
+        row = _get_sessions(conn, session_id)
         if not row:
             raise HTTPException(404, "Session not found")
-        return _row_to_dict(row)
+        return row
     finally:
         conn.close()
 
