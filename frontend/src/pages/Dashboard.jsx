@@ -18,6 +18,8 @@ const DEFAULT_FILTERS = {
   search: '',
   rating: -1,
   rating_op: 'gte',
+  focal_min: null,
+  focal_max: null,
 }
 
 export default function Dashboard() {
@@ -80,6 +82,8 @@ export default function Dashboard() {
       search: filters.search || undefined,
       rating: filters.rating >= 0 ? filters.rating : undefined,
       rating_op: filters.rating > 0 ? filters.rating_op : undefined,
+      min_focal: filters.focal_min ?? undefined,
+      max_focal: filters.focal_max ?? undefined,
     }
     api.getPhotos(id, params)
       .then(p => { setPhotos(p); setLoading(false) })
@@ -137,6 +141,8 @@ export default function Dashboard() {
         search: filters.search || undefined,
         rating: filters.rating >= 0 ? filters.rating : undefined,
         rating_op: filters.rating > 0 ? filters.rating_op : undefined,
+        min_focal: filters.focal_min ?? undefined,
+        max_focal: filters.focal_max ?? undefined,
       })])
       setStats(newStats)
       setPhotos(newPhotos)
@@ -149,6 +155,11 @@ export default function Dashboard() {
 
   const scoreMin = stats?.score_min ?? 0
   const scoreMax = stats?.score_max ?? 1
+
+  // When browsing a specific group, sort lightbox by score desc (best first)
+  const lightboxPhotos = filters.group_id >= 0
+    ? [...photos].sort((a, b) => b.score - a.score)
+    : photos
 
   if (error) return (
     <div className="min-h-screen bg-bg flex items-center justify-center text-bad text-sm">
@@ -265,14 +276,14 @@ export default function Dashboard() {
         <div className="flex items-center justify-center py-24 text-muted text-sm">Žádné fotky pro tyto filtry</div>
       ) : (
         <div className="photo-grid pb-20">
-          {photos.map((photo, idx) => (
+          {photos.map((photo) => (
             <PhotoCard
               key={photo.id}
               photo={photo}
               scoreMin={scoreMin}
               scoreMax={scoreMax}
               onToggleSelect={handleToggleSelect}
-              onOpenLightbox={() => setLightboxIdx(idx)}
+              onOpenLightbox={() => setLightboxIdx(lightboxPhotos.findIndex(p => p.id === photo.id))}
               onUpdate={handleUpdate}
             />
           ))}
@@ -291,11 +302,13 @@ export default function Dashboard() {
       {/* Lightbox */}
       {lightboxIdx !== null && (
         <Lightbox
-          photos={photos}
+          photos={lightboxPhotos}
           index={lightboxIdx}
           onClose={() => setLightboxIdx(null)}
           onNavigate={setLightboxIdx}
           onOpenFile={handleOpenFile}
+          onUpdate={handleUpdate}
+          onToggleSelect={handleToggleSelect}
         />
       )}
 

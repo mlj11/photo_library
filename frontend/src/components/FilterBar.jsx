@@ -50,7 +50,10 @@ const SORTS = [
 export default function FilterBar({ filters, stats, visibleCount, onFiltersChange, onCardSizeChange, cardSize }) {
   const searchRef = useRef(null)
   const [localSearch, setLocalSearch] = useState(filters.search || '')
+  const [localFocalMin, setLocalFocalMin] = useState(filters.focal_min ?? '')
+  const [localFocalMax, setLocalFocalMax] = useState(filters.focal_max ?? '')
   const timerRef = useRef(null)
+  const focalTimer = useRef(null)
 
   const set = (key, val) => onFiltersChange(prev => ({ ...prev, [key]: val }))
   const toggleOrder = () => set('order', filters.order === 'asc' ? 'desc' : 'asc')
@@ -61,6 +64,28 @@ export default function FilterBar({ filters, stats, visibleCount, onFiltersChang
     clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => set('search', v), 350)
   }
+
+  function handleFocalMin(e) {
+    const v = e.target.value
+    setLocalFocalMin(v)
+    clearTimeout(focalTimer.current)
+    focalTimer.current = setTimeout(() => set('focal_min', v === '' ? null : Number(v)), 400)
+  }
+
+  function handleFocalMax(e) {
+    const v = e.target.value
+    setLocalFocalMax(v)
+    clearTimeout(focalTimer.current)
+    focalTimer.current = setTimeout(() => set('focal_max', v === '' ? null : Number(v)), 400)
+  }
+
+  function resetFocal() {
+    setLocalFocalMin('')
+    setLocalFocalMax('')
+    onFiltersChange(prev => ({ ...prev, focal_min: null, focal_max: null }))
+  }
+
+  const focalActive = filters.focal_min != null || filters.focal_max != null
 
   const scoreMin = stats?.score_min ?? 0
   const scoreMax = stats?.score_max ?? 1
@@ -148,7 +173,42 @@ export default function FilterBar({ filters, stats, visibleCount, onFiltersChang
         )}
       </div>
 
-      {/* Row 5: score slider + card size */}
+      {/* Row 5: focal length filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`text-[0.65rem] min-w-[3rem] ${focalActive ? 'text-accent' : 'text-muted'}`}>Ohnisko:</span>
+        <input
+          type="number"
+          min="1" max="2000" step="1"
+          placeholder={stats?.focal_min ? `min ${Math.round(stats.focal_min)}` : 'od'}
+          value={localFocalMin}
+          onChange={handleFocalMin}
+          className={`w-20 bg-bg border rounded px-2 py-1 text-[0.65rem] text-txt outline-none transition
+            ${focalActive ? 'border-accent' : 'border-border focus:border-accent'}`}
+        />
+        <span className="text-muted text-[0.65rem]">–</span>
+        <input
+          type="number"
+          min="1" max="2000" step="1"
+          placeholder={stats?.focal_max ? `max ${Math.round(stats.focal_max)}` : 'do'}
+          value={localFocalMax}
+          onChange={handleFocalMax}
+          className={`w-20 bg-bg border rounded px-2 py-1 text-[0.65rem] text-txt outline-none transition
+            ${focalActive ? 'border-accent' : 'border-border focus:border-accent'}`}
+        />
+        <span className="text-muted text-[0.65rem]">mm</span>
+        {focalActive && (
+          <button onClick={resetFocal} className="text-[0.65rem] px-2 py-1 rounded border border-border text-muted hover:text-accent hover:border-accent/50 transition">
+            ✕ reset
+          </button>
+        )}
+        {stats?.focal_min != null && (
+          <span className="text-muted text-[0.6rem] ml-1">
+            (rozsah: {Math.round(stats.focal_min)}–{Math.round(stats.focal_max)} mm)
+          </span>
+        )}
+      </div>
+
+      {/* Row 6: score slider + card size */}
       <div className="flex items-center gap-4 flex-wrap">
         <span className="text-muted text-[0.65rem]">Min score:</span>
         <div className="flex items-center gap-2">

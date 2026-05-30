@@ -85,7 +85,11 @@ CREATE TABLE IF NOT EXISTS photos (
     exported        INTEGER DEFAULT 0,
     export_path     TEXT DEFAULT '',
     created_at      TEXT NOT NULL,
-    embedding       BLOB DEFAULT NULL
+    embedding       BLOB DEFAULT NULL,
+    exif_iso        INTEGER DEFAULT NULL,
+    exif_aperture   REAL DEFAULT NULL,
+    exif_shutter    TEXT DEFAULT NULL,
+    exif_focal      INTEGER DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_photos_session  ON photos(session_id);
 CREATE INDEX IF NOT EXISTS idx_photos_score    ON photos(session_id, score DESC);
@@ -120,25 +124,25 @@ CAT_PROMPTS = {
         "upper body portrait face occupies most of the image",
     ],
     "portret_stredni": [
-        "a person standing still posed taking up most of the photo face clearly visible",
-        "full body posed portrait person dominates the frame not moving face recognizable",
-        "child or person standing still large in the frame posing for photo",
-        "two or three people posing together for a photo faces visible standing still",
-        "group of children posing for a photo outdoors faces clearly visible",
-        "posed portrait of people in foreground large in frame other people walking behind",
-        "two children lying on rock smiling faces visible playful posed photo",
+        "a child or person large in the frame face clearly visible outdoor portrait",
+        "full body portrait person dominates the photo face recognizable mountain background",
+        "child standing posing outdoors large in frame rocky background",
+        "a child sitting on a rock large in foreground face visible mountains behind",
+        "person crouching or sitting outdoors large in frame face toward camera",
+        "two or three people posing together faces clearly visible large in photo",
+        "person in foreground large dominating frame landscape background behind",
     ],
     "portret_vzdaleny": [
-        "a person small and distant in a large landscape barely visible",
-        "tiny silhouette of a person far away in mountains or nature",
-        "person seen from very far away small figure in wide landscape",
-        "distant hiker small dot in vast mountain scenery",
+        "a small human figure clearly identifiable in the distance on a mountain trail",
+        "distant hiker person clearly visible small but recognizable as human in landscape",
+        "one or two people small but identifiable as persons walking in mountain terrain",
+        "human silhouette recognizable as a person far away in a wide landscape",
     ],
     "krajina":          [
-        "a dramatic mountain landscape with absolutely no people present anywhere",
-        "scenic nature landscape with zero humans no people",
-        "wide angle nature photo mountains forest completely empty of people",
-        "landscape only photo no humans no faces no bodies",
+        "dramatic rocky mountain peaks and alpine sky panorama empty terrain",
+        "mountain valley with rocks and grass wide landscape shot",
+        "alpine scenery mountain slopes and rocky terrain wide angle",
+        "vast mountain panorama only rocks sky and terrain visible",
     ],
     "detail":           [
         "a macro detail of nature rocks or flowers",
@@ -152,21 +156,26 @@ CAT_PROMPTS = {
         "people in motion on mountain trail caught while walking hiking",
     ],
     "scena":            [
-        "a wide landscape scene with tiny distant people or objects",
-        "a person far away small in the frame landscape dominant",
-        "distant silhouette in landscape",
+        "wide mountain landscape scene with tiny hikers barely visible landscape is the main subject",
+        "dramatic landscape where people are too small to be the subject landscape dominates completely",
+        "mountain trail landscape with tiny distant figures incidental to the scenery",
+        "vast nature scene path or trail visible people tiny in background not the focus",
     ],
 }
 
 # portret_vzdaleny vs scena: pokud rozdil maly -> scena (postava je moc mala)
-PORTRET_V_MARGIN = 0.003
+PORTRET_V_MARGIN = 0.005
+# portret_vzdaleny vs krajina: pokud krajina skoro vyrovnava, neni postava -> krajina
+PORTRET_V_KRAJINA_MARGIN = 0.020
+# portret_vzdaleny: min odstup nad krajina pro spusteni face analyzy (jistota, ze tam je clovek)
+PORTRET_V_FACE_MIN_LEAD = 0.015
 
 # portret_stredni vs portret_blizky: pokud blizky skoro vyrovnava stredni -> povys na blizky
-PORTRET_B_MARGIN = 0.002
+PORTRET_B_MARGIN = 0.003
 
 # Pokud krajina vyhraje, ale nejlepsi portret je v tomto dosahu od krajiny,
 # uprednostnime portret (lide v popredi nesmí byt klasifikovani jako krajina)
-KRAJINA_PORTRAIT_MARGIN = 0.008
+KRAJINA_PORTRAIT_MARGIN = 0.025
 
 # CLIP prompty – vyraz obliceje (spolehlivejsi nez DeepFace pro outdoor)
 FACE_PROMPTS = {
@@ -183,9 +192,8 @@ FACE_PROMPTS = {
     "bad":        ["a person with both eyes completely shut closed not open",
                    "clearly blinking eyes fully closed mid-blink",
                    "eyes squeezed tightly shut grimacing in pain",
-                   "child with eyes half closed squinting looking downward not at camera",
-                   "person looking down with droopy or partially closed eyes unfocused gaze",
-                   "child with sleepy or squinting eyes not making eye contact looking away down"],
+                   "child with eyes half closed squinting heavily drooping eyelids",
+                   "person with eyes mostly closed or heavily squinted barely open"],
 }
 
 # CLIP prompty – pohled do kamery vs. od kamery
@@ -194,11 +202,13 @@ GAZE_PROMPTS = {
         "person looking directly into the camera lens making eye contact",
         "portrait subject facing camera direct gaze eyes toward lens",
         "person's face turned toward camera looking straight at photographer",
+        "child looking straight at camera eyes clearly directed at lens",
     ],
     "away": [
         "person looking away from camera sideways or downward not at lens",
-        "subject in motion walking with gaze directed away from camera",
-        "person with eyes directed to the side or down not toward camera",
+        "person with eyes clearly directed to the side not toward camera",
+        "person turned away from camera face in profile not facing lens",
+        "person with head turned sideways eyes not making contact with camera",
     ],
 }
 
@@ -412,6 +422,41 @@ def load_image(path: Path):
         print(f"  [WARN] {path.name}: {e}", flush=True)
         return None
 
+def read_exif(path: Path) -> dict:
+    """Přečte EXIF: ISO, clona, čas, ohnisková vzdálenost. Nikdy nevyhodí výjimku."""
+    result = {"exif_iso": None, "exif_aperture": None, "exif_shutter": None, "exif_focal": None}
+    try:
+        exif_obj = None
+        if path.suffix.lower() in SUPPORTED_RAW:
+            with rawpy.imread(str(path)) as raw:
+                td = raw.extract_thumb()
+                if td.format == rawpy.ThumbFormat.JPEG:
+                    exif_obj = Image.open(_io.BytesIO(td.data)).getexif()
+        else:
+            exif_obj = Image.open(str(path)).getexif()
+        if not exif_obj:
+            return result
+        # Kamera data jsou v ExifIFD sub-IFD (tag 34665), ne v hlavním IFD
+        exif = exif_obj.get_ifd(34665)
+        iso = exif.get(34855)
+        if iso is not None:
+            result["exif_iso"] = int(iso[0]) if isinstance(iso, (list, tuple)) else int(iso)
+        fn = exif.get(33437)
+        if fn is not None:
+            result["exif_aperture"] = round(float(fn), 1)
+        et = exif.get(33434)
+        if et is not None:
+            et_f = float(et)
+            if et_f > 0:
+                result["exif_shutter"] = f"{et_f:.1f}s" if et_f >= 1 else f"1/{round(1/et_f)}"
+        fl = exif.get(37386)
+        if fl is not None:
+            result["exif_focal"] = round(float(fl))
+    except Exception:
+        pass
+    return result
+
+
 def make_thumbnail(src: Path, dst: Path, size: int, img: "Image.Image | None" = None) -> bool:
     try:
         if img is None:
@@ -551,8 +596,8 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
     with torch.no_grad():
         feat = model.encode_image(img_t)
         feat = feat / feat.norm(dim=-1, keepdim=True)
-        scores      = {k: (feat @ tf.T).mean().item() for k, tf in tf_face.items()}
-        gaze_scores = {k: (feat @ tf.T).mean().item() for k, tf in tf_gaze.items()}
+        scores      = {k: (feat @ tf.T).max().item() for k, tf in tf_face.items()}
+        gaze_scores = {k: (feat @ tf.T).max().item() for k, tf in tf_gaze.items()}
 
     smile_s = scores["smile"]
     bad_s   = scores["bad"]
@@ -565,21 +610,21 @@ def analyze_face_clip(img: Image.Image, model, preprocess,
     elif wow_s > smile_s + 0.004 and wow_s > bad_s + 0.006:
         emotion = "wow"
         fscore  = min((wow_s - smile_s) * 20, 0.6)
-    elif bad_s > smile_s + 0.012:
+    elif bad_s > smile_s + 0.018:
         emotion = "bad"
-        fscore  = -min((bad_s - smile_s) * 30, 0.8)
+        fscore  = -min((bad_s - smile_s) * 25, 0.8)
     else:
         emotion = "neutral"
         fscore  = 0.1
 
-    # Pohled do kamery – bonus za přímý pohled, malá penalizace za odvrácení
+    # Pohled do kamery – asymetricky prah: "bokem" jen pri silnem signalu (mene false positives)
     gaze_gap = gaze_scores["at_camera"] - gaze_scores["away"]
-    if gaze_gap > 0.003:
+    if gaze_gap > 0.002:
         gaze       = "at_camera"
-        gaze_score = min(gaze_gap * 25, 0.8)
-    elif gaze_gap < -0.003:
+        gaze_score = min(gaze_gap * 20, 0.8)
+    elif gaze_gap < -0.025:
         gaze       = "away"
-        gaze_score = max(gaze_gap * 15, -0.4)
+        gaze_score = max(gaze_gap * 12, -0.4)
     else:
         gaze       = "unknown"
         gaze_score = 0.0
@@ -681,6 +726,10 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
         "ALTER TABLE photos ADD COLUMN embedding BLOB DEFAULT NULL",
         "ALTER TABLE photos ADD COLUMN phash TEXT DEFAULT NULL",
         "ALTER TABLE photos ADD COLUMN gaze TEXT DEFAULT ''",
+        "ALTER TABLE photos ADD COLUMN exif_iso INTEGER DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN exif_aperture REAL DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN exif_shutter TEXT DEFAULT NULL",
+        "ALTER TABLE photos ADD COLUMN exif_focal INTEGER DEFAULT NULL",
     ]:
         try:
             conn.execute(_migration); conn.commit()
@@ -700,15 +749,17 @@ def save_to_db(results: list, input_dir: Path, output_dir: Path,
                 session_id, name, path, thumb,
                 score, clip_score, sharp_center, sharp_edges, sharp_total,
                 dof, comp_score, category, emotion, face_score,
-                group_id, best_in_group, created_at, embedding, phash, gaze
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                group_id, best_in_group, created_at, embedding, phash, gaze,
+                exif_iso, exif_aperture, exif_shutter, exif_focal
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             session_id, r["name"], r["path"], r["thumb"],
             r["score"], r["clip"], r["sharp_c"], r["sharp_e"], r["sharp_t"],
             1 if r["dof"] else 0, r["comp"], r["category"],
             r["emotion"], r["face_score"],
             r["group"], 1 if r["best_in_group"] else 0,
-            _dt.now().isoformat(), emb_blob, phash_str, r.get("gaze", "")
+            _dt.now().isoformat(), emb_blob, phash_str, r.get("gaze", ""),
+            r.get("exif_iso"), r.get("exif_aperture"), r.get("exif_shutter"), r.get("exif_focal")
         ))
     conn.commit()
     conn.close()
@@ -790,6 +841,9 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
         if img is None:
             continue
 
+        # EXIF – čte se přímo ze souboru před dalším zpracováním
+        exif = read_exif(photo_path)
+
         # CLIP embedding + quality score
         _step_t = time.time()
         img_t = preprocess(img).unsqueeze(0).to(device)
@@ -798,7 +852,7 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             feat = feat / feat.norm(dim=-1, keepdim=True)
             pos  = (feat @ tf_pos.T).mean().item()
             neg  = (feat @ tf_neg.T).mean().item()
-            cat_s = {k: (feat @ tf.T).mean().item() for k, tf in tf_cats.items()}
+            cat_s = {k: (feat @ tf.T).max().item() for k, tf in tf_cats.items()}
         clip_s = float(pos - neg * neg_weight)
         emb    = feat.cpu().float().numpy().squeeze()
         embeddings.append(emb)
@@ -830,9 +884,12 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
                     key=lambda k: cat_s.get(k, 0)
                 )
 
+        # portret_vzdaleny vs krajina: pokud krajina skoro vyrovnava, neni postava -> krajina
         # portret_vzdaleny vs scena: pokud rozdil maly -> scena (postava moc mala)
         if category == "portret_vzdaleny":
-            if cat_s["portret_vzdaleny"] - cat_s.get("scena", 0) < PORTRET_V_MARGIN:
+            if cat_s["portret_vzdaleny"] - cat_s.get("krajina", 0) < PORTRET_V_KRAJINA_MARGIN:
+                category = "krajina"
+            elif cat_s["portret_vzdaleny"] - cat_s.get("scena", 0) < PORTRET_V_MARGIN:
                 category = "scena"
 
         # portret_stredni vs portret_blizky: pokud blizky skoro vyrovnava -> povys na blizky
@@ -840,8 +897,12 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             if cat_s["portret_stredni"] - cat_s.get("portret_blizky", 0) < PORTRET_B_MARGIN:
                 category = "portret_blizky"
 
-        # face analyza: blizky, stredni i vzdaleny – gaze detekce funguje i pro mensi obliceje
-        is_portrait = category in ("portret_blizky", "portret_stredni", "portret_vzdaleny")
+        # face analyza: blizky a stredni vzdy; vzdaleny jen kdyz jasne bije krajinu (jistota, ze tam je clovek)
+        is_portrait = (
+            category in ("portret_blizky", "portret_stredni") or
+            (category == "portret_vzdaleny" and
+             cat_s.get("portret_vzdaleny", 0) - cat_s.get("krajina", 0) >= PORTRET_V_FACE_MIN_LEAD)
+        )
 
         # Ostrost (DOF-aware)
         sharp = analyze_sharpness(img, dof_peak_min, dof_ratio, blur_penalty_thr)
@@ -886,6 +947,10 @@ def score_photos(input_dir: Path, output_dir: Path, sort_by: str,
             "emotion":   face["emotion"],
             "face_score":face["face_score"],
             "gaze":      face["gaze"],
+            "exif_iso":      exif["exif_iso"],
+            "exif_aperture": exif["exif_aperture"],
+            "exif_shutter":  exif["exif_shutter"],
+            "exif_focal":    exif["exif_focal"],
             "group":     -1,
             "best_in_group": False,
             "embedding": emb,
@@ -1602,6 +1667,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     input_dir  = Path(args.input)
+    if not input_dir.is_dir():
+        print(f"[ERR] Složka neexistuje nebo není přístupná: {input_dir}", flush=True)
+        sys.exit(1)
     output_dir = Path(args.output) if args.output else input_dir / "_dashboard"
     db_path    = Path(args.db) if args.db else Path(r"C:\ML\photo_library.db")
     skip_files = [s.strip() for s in args.skip_files.split(",") if s.strip()]

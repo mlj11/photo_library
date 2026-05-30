@@ -115,6 +115,10 @@ def list_sessions():
 @app.post("/api/sessions", status_code=202)
 def create_session(req: SessionCreate):
     import uuid
+    input_path = Path(req.input_dir)
+    if not input_path.is_dir():
+        raise HTTPException(400, f"Složka neexistuje nebo není přístupná: {req.input_dir}")
+
     job_id = str(uuid.uuid4())[:8]
 
     script = Path(__file__).parent.parent / "photo_score.py"
@@ -324,6 +328,8 @@ def list_photos(
     search: str = Query(""),
     rating: int = Query(-1),
     rating_op: str = Query("gte", pattern="^(eq|gte|lte)$"),
+    min_focal: Optional[float] = Query(None),
+    max_focal: Optional[float] = Query(None),
 ):
     conn = get_db()
     try:
@@ -348,6 +354,13 @@ def list_photos(
         if min_score is not None:
             conditions.append("p.score >= ?")
             params.append(min_score)
+
+        if min_focal is not None:
+            conditions.append("p.exif_focal >= ?")
+            params.append(min_focal)
+        if max_focal is not None:
+            conditions.append("p.exif_focal <= ?")
+            params.append(max_focal)
 
         if search:
             conditions.append("p.name LIKE ?")
@@ -399,7 +412,7 @@ def list_photos(
         order_dir = "DESC" if order == "desc" else "ASC"
         where = " AND ".join(conditions)
 
-        cols = "p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze"
+        cols = "p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze,p.exif_iso,p.exif_aperture,p.exif_shutter,p.exif_focal"
         if sort == "group":
             # Unique photos (group_id = -1) always at the end;
             # groups ordered ASC/DESC; within each group best score first.
@@ -438,7 +451,7 @@ def update_photo(photo_id: int, req: PhotoUpdate):
         conn.commit()
 
         row = conn.execute("""
-            SELECT p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze, s.thumb_dir FROM photos p
+            SELECT p.id,p.session_id,p.name,p.path,p.thumb,p.score,p.clip_score,p.sharp_center,p.sharp_edges,p.sharp_total,p.dof,p.comp_score,p.category,p.emotion,p.face_score,p.group_id,p.best_in_group,p.selected,p.user_category,p.user_rating,p.notes,p.exported,p.export_path,p.created_at,p.gaze,p.exif_iso,p.exif_aperture,p.exif_shutter,p.exif_focal, s.thumb_dir FROM photos p
             JOIN sessions s ON p.session_id = s.id
             WHERE p.id=?
         """, (photo_id,)).fetchone()
@@ -587,7 +600,7 @@ def get_stats(session_id: int):
     conn = get_db()
     try:
         photos = conn.execute(
-            "SELECT score, category, group_id, selected, emotion, dof, sharp_center "
+            "SELECT score, category, group_id, selected, emotion, dof, sharp_center, exif_focal "
             "FROM photos WHERE session_id=?", (session_id,)).fetchall()
         if not photos:
             return {"total": 0}
@@ -630,6 +643,8 @@ def get_stats(session_id: int):
             "score_histogram": buckets,
             "categories": cats,
             "emotions": emotions,
+            "focal_min": min((p["exif_focal"] for p in photos if p["exif_focal"]), default=None),
+            "focal_max": max((p["exif_focal"] for p in photos if p["exif_focal"]), default=None),
         }
     finally:
         conn.close()
